@@ -12,8 +12,7 @@ namespace Domain.Models
     {
         [Key]
         public int ChatHistoryId { get; set; }
-        [ForeignKey("MessageId")]
-        public int MessageId { get; set; }
+        [ForeignKey("UserId")]
         public int UserId { get; set; }
         public DateTime SessionStart { get; set; }
 
