@@ -33,7 +33,7 @@ namespace DAL.Repositories
             _context.Tasks.Update(task);
             await _context.SaveChangesAsync();
         }
-        
+
         public async System.Threading.Tasks.Task DeleteAsync(int id)
         {
             var task = await _context.Tasks.FindAsync(id);
