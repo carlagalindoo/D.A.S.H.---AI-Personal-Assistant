@@ -1,4 +1,6 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿using Domain.Models;
+using Microsoft.EntityFrameworkCore;
+
 
 namespace DAL.Data
 {
@@ -9,7 +11,7 @@ namespace DAL.Data
         {
         }
 
-        // Add DbSet<Appointment> here once the entity is created
-        // public DbSet<Appointment> Appointments { get; set; }
+       
+        public DbSet<Domain.Models.Task> Tasks { get; set; }
     }
 }
