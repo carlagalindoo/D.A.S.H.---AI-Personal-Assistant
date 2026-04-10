@@ -1,4 +1,5 @@
-﻿using DAL.Data;
+﻿using Domain.Interfaces;
+using DAL.Data;
 using Microsoft.EntityFrameworkCore;
 
 namespace DAL.Repositories
