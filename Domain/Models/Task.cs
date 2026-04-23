@@ -12,11 +12,12 @@ public class Task
 {
     [Key]
     public int TaskId { get; set; }
-    [ForeignKey("UserId")]
-    public int UserId { get; set; }
+    [ForeignKey("SessionKey")]
+    public int SessionKey { get; set; }
     public string Title { get; set; }
     public string Description { get; set; }
-    public DateTime DueDate { get; set; }
+    public DateTime Date { get; set; }
+    public DateTime Time { get; set; }
     public string Location { get; set; }
     public string People { get; set; }
 
