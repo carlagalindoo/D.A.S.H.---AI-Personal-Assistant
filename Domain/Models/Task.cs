@@ -12,17 +12,13 @@ public class Task
 {
     [Key]
     public int TaskId { get; set; }
-    [Required, ForeignKey("UserId")]
-    public int UserId { get; set; }
-    [Required]
+    [ForeignKey("SessionKey")]
+    public int SessionKey { get; set; }
     public string Title { get; set; }
-    [Required]
     public string Description { get; set; }
-    [Required]
-    public DateTime DueDate { get; set; }
-    [Required]
+    public DateTime Date { get; set; }
+    public DateTime Time { get; set; }
     public string Location { get; set; }
-    [Required]
     public string People { get; set; }
 
 }

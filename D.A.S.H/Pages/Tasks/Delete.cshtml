@@ -1,0 +1,40 @@
+﻿@page "{id:int}"
+@model D.A.S.H.Pages.Tasks.DeleteModel
+
+@{
+    ViewData["Title"] = "Delete Task";
+}
+
+<div class="container mt-4">
+    <h2 class="mb-3 text-danger">Delete Task</h2>
+
+    <div class="alert alert-warning">
+        Are you sure you want to delete this task?
+    </div>
+
+    <dl class="row">
+        <dt class="col-sm-3">Task ID</dt>
+        <dd class="col-sm-9">@Model.TaskItem.TaskId</dd>
+
+        <dt class="col-sm-3">Title</dt>
+        <dd class="col-sm-9">@Model.TaskItem.Title</dd>
+
+        <dt class="col-sm-3">Description</dt>
+        <dd class="col-sm-9">@Model.TaskItem.Description</dd>
+
+        <dt class="col-sm-3">Due Date</dt>
+        <dd class="col-sm-9">@Model.TaskItem.Date</dd>
+
+        <dt class="col-sm-3">Location</dt>
+        <dd class="col-sm-9">@Model.TaskItem.Location</dd>
+
+        <dt class="col-sm-3">People</dt>
+        <dd class="col-sm-9">@Model.TaskItem.People</dd>
+    </dl>
+
+    <form method="post">
+        <input type="hidden" asp-for="TaskItem.TaskId" />
+        <button type="submit" class="btn btn-danger">Delete</button>
+        <a asp-page="/Tasks/Index" class="btn btn-secondary">Cancel</a>
+    </form>
+</div>
