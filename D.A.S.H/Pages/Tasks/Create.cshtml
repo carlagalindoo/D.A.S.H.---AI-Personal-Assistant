@@ -10,9 +10,9 @@
 
     <form method="post">
         <div class="mb-3">
-            <label asp-for="TaskItem.UserId" class="form-label"></label>
-            <input asp-for="TaskItem.UserId" class="form-control" />
-            <span asp-validation-for="TaskItem.UserId" class="text-danger"></span>
+            <label asp-for="TaskItem.SessionKey" class="form-label"></label>
+            <input asp-for="TaskItem.SessionKey" class="form-control" />
+            <span asp-validation-for="TaskItem.SessionKey" class="text-danger"></span>
         </div>
 
         <div class="mb-3">
@@ -28,9 +28,9 @@
         </div>
 
         <div class="mb-3">
-            <label asp-for="TaskItem.DueDate" class="form-label"></label>
-            <input asp-for="TaskItem.DueDate" type="datetime-local" class="form-control" />
-            <span asp-validation-for="TaskItem.DueDate" class="text-danger"></span>
+            <label asp-for="TaskItem.Date" class="form-label"></label>
+            <input asp-for="TaskItem.Date" type="datetime-local" class="form-control" />
+            <span asp-validation-for="TaskItem.Date" class="text-danger"></span>
         </div>
 
         <div class="mb-3">

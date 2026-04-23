@@ -19,6 +19,7 @@
                 <th>Title</th>
                 <th>Description</th>
                 <th>Due Date</th>
+                <th>Due Time</th>
                 <th>Location</th>
                 <th>People</th>
                 <th>Actions</th>
@@ -31,10 +32,11 @@
                 {
                     <tr>
                         <td>@task.TaskId</td>
-                        <td>@task.UserId</td>
+                        <td>@task.SessionKey</td>
                         <td>@task.Title</td>
                         <td>@task.Description</td>
-                        <td>@task.DueDate</td>
+                        <td>@task.Date</td>
+                        <td>@task.Time</td>
                         <td>@task.Location</td>
                         <td>@task.People</td>
                         <td>
