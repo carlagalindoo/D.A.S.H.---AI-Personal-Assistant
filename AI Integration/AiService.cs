@@ -12,7 +12,7 @@ namespace AI_Integration
 
         public AiService()
         {
-            _client.BaseAddress = new Uri("http://localhost:11434");
+            _client.BaseAddress = new Uri("http://localhost:11434/");
 
         }
 
@@ -36,7 +36,7 @@ namespace AI_Integration
 
             {
             
-                HttpResponseMessage response = await _client.PostAsync("/api/chat", content);
+                HttpResponseMessage response = await _client.PostAsync("api/chat", content);
 
                 response.EnsureSuccessStatusCode();
 
