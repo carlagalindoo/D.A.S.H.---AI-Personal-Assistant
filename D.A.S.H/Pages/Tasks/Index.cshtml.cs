@@ -1,5 +1,6 @@
 using DAL.Repositories;
 using Microsoft.AspNetCore.Mvc.RazorPages;
+using Domain.Interfaces;
 
 namespace D.A.S.H.Pages.Tasks
 {

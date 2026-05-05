@@ -1,7 +1,6 @@
 ﻿using Domain.Models;
 using Microsoft.EntityFrameworkCore;
 
-
 namespace DAL.Data
 {
     public class AssistantDbContext : DbContext
@@ -11,7 +10,11 @@ namespace DAL.Data
         {
         }
 
-       
         public DbSet<Domain.Models.Task> Tasks { get; set; }
+
+        protected override void OnModelCreating(ModelBuilder modelBuilder)
+        {
+            modelBuilder.Entity<Domain.Models.Task>().ToTable("Task");
+        }
     }
 }
