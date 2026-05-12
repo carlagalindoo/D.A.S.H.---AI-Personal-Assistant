@@ -12,8 +12,7 @@ public class Task
 {
     [Key]
     public int TaskId { get; set; }
-    [ForeignKey("SessionKey")]
-    public int SessionKey { get; set; }
+    public string SessionKey { get; set; } = "1";
     public string Title { get; set; }
     public string Description { get; set; }
     public DateTime Date { get; set; }

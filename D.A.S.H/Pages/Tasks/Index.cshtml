@@ -18,8 +18,8 @@
                 <th>User ID</th>
                 <th>Title</th>
                 <th>Description</th>
-                <th>Due Date</th>
-                <th>Due Time</th>
+                <th>Date</th>
+                <th>Time</th>
                 <th>Location</th>
                 <th>People</th>
                 <th>Actions</th>
@@ -35,8 +35,8 @@
                         <td>@task.SessionKey</td>
                         <td>@task.Title</td>
                         <td>@task.Description</td>
-                        <td>@task.Date</td>
-                        <td>@task.Time</td>
+                        <td>@task.Date.ToString("dd/MM/yyyy")</td>
+                        <td>@task.Time.ToString("h:mm tt")</td>
                         <td>@task.Location</td>
                         <td>@task.People</td>
                         <td>

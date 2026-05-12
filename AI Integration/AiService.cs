@@ -2,73 +2,86 @@
 using System.Text;
 using System.Text.Json;
 
-
 namespace AI_Integration
 {
-    public class AiService
+    public class AiService : IAiService
     {
-
-        private static readonly HttpClient _client = new HttpClient();
+        private static readonly HttpClient _client = new HttpClient
+        {
+            BaseAddress = new Uri("http://localhost:11434/")
+        };
 
         public AiService()
         {
-            _client.BaseAddress = new Uri("http://localhost:11434/");
-
         }
 
         public async Task<ExtractedFacts?> ExtractFactsAsync(string userInput)
         {
-            var obj = new {
-                model = "qwen3:8b",
+            var obj = new
+            {
+                model = "tinyllama",
                 stream = false,
                 messages = new[]
                 {
-                    new {role = "system", content = "extract Who, What, Where, When. Return valid JSON"},
-                    new {role = "user", content = userInput}
+                    new
+                    {
+                        role = "system",
+                        content = "Return ONLY JSON in this exact format: {\"Who\":\"\",\"What\":\"\",\"Where\":\"\",\"When\":\"\"}. No explanation. No markdown."
+                    },
+                    new
+                    {
+                        role = "user",
+                        content = $"Text: {userInput}"
+                    }
                 }
-
             };
-            using StringContent content = new(
-                  JsonSerializer.Serialize(obj),
-                  Encoding.UTF8,
-                  "application/json"
-);
 
+            using StringContent content = new(
+                JsonSerializer.Serialize(obj),
+                Encoding.UTF8,
+                "application/json"
+            );
+
+            try
             {
-            
                 HttpResponseMessage response = await _client.PostAsync("api/chat", content);
 
-                response.EnsureSuccessStatusCode();
+                if (!response.IsSuccessStatusCode)
+                {
+                    return null;
+                }
 
-                string vysledek = await response.Content.ReadAsStringAsync();
+                string result = await response.Content.ReadAsStringAsync();
 
-                var root = JsonDocument.Parse(vysledek);
+                using var root = JsonDocument.Parse(result);
 
-                string aicontent = root
-                     .RootElement
-                     .GetProperty("message")
-                     .GetProperty("content")
-                     .GetString()! ;
+                string aiContent = root
+                    .RootElement
+                    .GetProperty("message")
+                    .GetProperty("content")
+                    .GetString() ?? "";
 
-                var fakta = JsonSerializer.Deserialize<ExtractedFacts>(
-                                                                 aicontent,
-                                                 new JsonSerializerOptions
-                                                 {
-                                                  PropertyNameCaseInsensitive = true
-                                                 });
-                return fakta;
+                int start = aiContent.IndexOf("{");
+                int end = aiContent.LastIndexOf("}");
 
+                if (start == -1 || end == -1 || end <= start)
+                {
+                    return null;
+                }
 
+                string jsonOnly = aiContent.Substring(start, end - start + 1);
+
+                return JsonSerializer.Deserialize<ExtractedFacts>(
+                    jsonOnly,
+                    new JsonSerializerOptions
+                    {
+                        PropertyNameCaseInsensitive = true
+                    });
             }
-            ;
-          
-              
-
-
-
+            catch
+            {
+                return null;
+            }
         }
-
-        
     }
 }
-       

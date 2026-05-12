@@ -34,11 +34,23 @@
             <h5 class="card-title">New Chat</h5>
 
             <div class="border rounded p-3 mb-3 flex-grow-1" style="min-height: 0;">
+
+                @if (!string.IsNullOrWhiteSpace(Model.AiResponse))
+                {
+                    <div class="mb-2">
+                        <strong>You:</strong> @Model.UserRequest
+                    </div>
+
+                    <div class="mb-2 text-primary">
+                        <strong>AI:</strong> @Model.AiResponse
+                    </div>
+                }
+
             </div>
 
-            <form>
+            <form method="post">
                 <div class="input-group">
-                    <input type="text" class="form-control" placeholder="Type your request">
+                    <input asp-for="UserRequest" class="form-control" placeholder="Type your request" />
                     <button type="submit" class="btn btn-primary">Submit</button>
                 </div>
             </form>
