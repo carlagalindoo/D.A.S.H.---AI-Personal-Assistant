@@ -26,7 +26,7 @@ namespace AI_Integration
                     new
                     {
                         role = "system",
-                        content = "Return ONLY JSON in this exact format: {\"Who\":\"\",\"What\":\"\",\"Where\":\"\",\"When\":\"\"}. No explanation. No markdown."
+                        content = "Return ONLY JSON in this exact format: {\"Action\":\"\",\"Who\":\"\",\"What\":\"\",\"Where\":\"\",\"When\":\"\"}. Action must be one of: Create, Read, Update, Delete. No explanation. No markdown."
                     },
                     new
                     {

@@ -19,12 +19,14 @@ namespace Domain.Models
     {
         [Key]
         public int MessageId { get; set; }
-        public string Text { get; set; } = string.Empty;
-        public DateTime SentAt { get; set; }
 
+        public string Text { get; set; } = string.Empty;
+
+        public DateTime SentAt { get; set; }
 
         public IntentType Intent { get; set; }
 
+        public string Sender { get; set; } = string.Empty;
 
         [ForeignKey("ChatHistoryId")]
         public int ChatHistoryId { get; set; }

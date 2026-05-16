@@ -3,7 +3,7 @@ using DAL.Repositories;
 using Domain.Models;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
-using System.Threading.Tasks;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 
 namespace D.A.S.H.Pages
@@ -24,58 +24,182 @@ namespace D.A.S.H.Pages
 
         public string AiResponse { get; set; } = string.Empty;
 
+        public List<Message> ChatMessages { get; set; } = new();
+
+        public void OnGet()
+        {
+            LoadChatMessages();
+        }
+
         public async System.Threading.Tasks.Task OnPostAsync()
         {
+            LoadChatMessages();
+
             if (string.IsNullOrWhiteSpace(UserRequest))
             {
-                AiResponse = "Please type something.";
+                AddAiMessage("Please type something.", IntentType.Create);
+                SaveChatMessages();
                 return;
             }
 
+            var currentInput = UserRequest.Trim();
+            var lowerInput = currentInput.ToLower();
+
+            AddUserMessage(currentInput);
+
+            bool isDeleteRequest =
+                lowerInput.StartsWith("delete") ||
+                lowerInput.StartsWith("remove");
+
+            if (isDeleteRequest)
+            {
+                await HandleDeleteAsync(currentInput);
+                SaveChatMessages();
+                UserRequest = string.Empty;
+                return;
+            }
+
+            bool isReadRequest =
+                lowerInput.Contains("show") ||
+                lowerInput.Contains("list") ||
+                lowerInput.Contains("read");
+
+            if (isReadRequest)
+            {
+                await HandleReadAsync();
+                SaveChatMessages();
+                UserRequest = string.Empty;
+                return;
+            }
+
+            await HandleCreateAsync(currentInput);
+
+            SaveChatMessages();
+            UserRequest = string.Empty;
+        }
+
+        private async System.Threading.Tasks.Task HandleCreateAsync(string input)
+        {
             try
             {
-                var facts = await _aiService.ExtractFactsAsync(UserRequest);
-
-                if (facts == null)
-                {
-                    var fallbackTask = new Domain.Models.Task
-                    {
-                        Title = ExtractTitle(UserRequest),
-                        Description = UserRequest,
-                        Date = ParseDate(UserRequest),
-                        Time = ParseTime(UserRequest),
-                        Location = ExtractLocation(UserRequest),
-                        People = ExtractPeople(UserRequest),
-                        SessionKey = "1"
-                    };
-
-                    await _taskRepository.AddAsync(fallbackTask);
-                    AiResponse = "AI could not extract details, but the task was still created.";
-
-                    return;
-                }
+                var facts = await _aiService.ExtractFactsAsync(input);
 
                 var task = new Domain.Models.Task
                 {
-                    Title = ExtractTitle(UserRequest),
-                    Description = UserRequest,
-                    Date = ParseDate(UserRequest),
-                    Time = ParseTime(UserRequest),
-                    Location = ExtractLocation(UserRequest),
-                    People = ExtractPeople(UserRequest),
+                    Title = GetValueOrFallback(facts?.What, ExtractTitle(input)),
+                    Description = input,
+                    Date = ParseDate(GetValueOrFallback(facts?.When, input)),
+                    Time = ParseTime(GetValueOrFallback(facts?.When, input)),
+                    Location = GetValueOrFallback(facts?.Where, ExtractLocation(input)),
+                    People = GetValueOrFallback(facts?.Who, ExtractPeople(input)),
                     SessionKey = "1"
                 };
 
                 await _taskRepository.AddAsync(task);
 
                 AiResponse = "Task created successfully!";
+                AddAiMessage("Task created successfully!", IntentType.Create);
             }
             catch (Exception ex)
             {
                 AiResponse = $"AI failed: {ex.Message}";
+                AddAiMessage($"AI failed: {ex.Message}", IntentType.Create);
             }
         }
 
+        private async System.Threading.Tasks.Task HandleDeleteAsync(string input)
+        {
+            var tasks = await _taskRepository.GetAllAsync();
+
+            var searchText = input
+                .Replace("delete", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("remove", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("task", "", StringComparison.OrdinalIgnoreCase)
+                .Trim();
+
+            var taskToDelete = tasks.FirstOrDefault(t =>
+                t.Title.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+                t.Description.Contains(searchText, StringComparison.OrdinalIgnoreCase)
+            );
+
+            if (taskToDelete == null)
+            {
+                AiResponse = "I could not find a matching task to delete.";
+                AddAiMessage("I could not find a matching task to delete.", IntentType.Delete);
+                return;
+            }
+
+            await _taskRepository.DeleteAsync(taskToDelete.TaskId);
+
+            AiResponse = $"Deleted task: {taskToDelete.Title}";
+            AddAiMessage($"Deleted task: {taskToDelete.Title}", IntentType.Delete);
+        }
+
+        private async System.Threading.Tasks.Task HandleReadAsync()
+        {
+            var tasks = await _taskRepository.GetAllAsync();
+
+            if (!tasks.Any())
+            {
+                AiResponse = "There are no tasks yet.";
+                AddAiMessage("There are no tasks yet.", IntentType.Create);
+                return;
+            }
+
+            var response = "Current tasks: " + string.Join(", ", tasks.Select(t => t.Title));
+
+            AiResponse = response;
+            AddAiMessage(response, IntentType.Create);
+        }
+
+        private string GetValueOrFallback(string? aiValue, string fallback)
+        {
+            if (string.IsNullOrWhiteSpace(aiValue))
+                return fallback;
+
+            if (aiValue == "*" || aiValue.ToLower() == "not specified" || aiValue.ToLower() == "unknown")
+                return fallback;
+
+            return aiValue.Trim();
+        }
+
+        private void AddUserMessage(string text)
+        {
+            ChatMessages.Add(new Message
+            {
+                Text = text,
+                SentAt = DateTime.Now,
+                Sender = "You",
+                Intent = IntentType.Create,
+                ChatHistoryId = 1
+            });
+        }
+
+        private void AddAiMessage(string text, IntentType intent)
+        {
+            ChatMessages.Add(new Message
+            {
+                Text = text,
+                SentAt = DateTime.Now,
+                Sender = "AI",
+                Intent = intent,
+                ChatHistoryId = 1
+            });
+        }
+
+        private void LoadChatMessages()
+        {
+            var json = HttpContext.Session.GetString("ChatMessages");
+
+            ChatMessages = string.IsNullOrEmpty(json)
+                ? new List<Message>()
+                : JsonSerializer.Deserialize<List<Message>>(json) ?? new List<Message>();
+        }
+
+        private void SaveChatMessages()
+        {
+            HttpContext.Session.SetString("ChatMessages", JsonSerializer.Serialize(ChatMessages));
+        }
 
         private DateTime ParseDate(string? input)
         {
@@ -98,24 +222,47 @@ namespace D.A.S.H.Pages
             if (string.IsNullOrWhiteSpace(input))
                 return DateTime.Today.AddHours(9);
 
-            var match = Regex.Match(
-                input,
-                @"\bat\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b",
-                RegexOptions.IgnoreCase
-            );
+            input = input.ToLower();
 
-            if (!match.Success)
+            if (!input.Contains(" at "))
                 return DateTime.Today.AddHours(9);
 
-            int hour = int.Parse(match.Groups[1].Value);
-            int minute = match.Groups[2].Success ? int.Parse(match.Groups[2].Value) : 0;
-            string ampm = match.Groups[3].Value.ToLower();
+            var afterAt = input.Split(" at ").Last().Trim();
+
+            var parts = afterAt.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+            if (parts.Length == 0)
+                return DateTime.Today.AddHours(9);
+
+            string timePart = parts[0];
+            string ampm = parts.Length > 1 ? parts[1] : "";
+
+            int hour;
+            int minute = 0;
+
+            if (timePart.Contains(":"))
+            {
+                var timePieces = timePart.Split(":");
+
+                if (!int.TryParse(timePieces[0], out hour))
+                    return DateTime.Today.AddHours(9);
+
+                int.TryParse(timePieces[1], out minute);
+            }
+            else
+            {
+                if (!int.TryParse(timePart, out hour))
+                    return DateTime.Today.AddHours(9);
+            }
 
             if (ampm == "pm" && hour < 12)
                 hour += 12;
 
             if (ampm == "am" && hour == 12)
                 hour = 0;
+
+            if (hour < 0 || hour > 23)
+                return DateTime.Today.AddHours(9);
 
             return DateTime.Today.AddHours(hour).AddMinutes(minute);
         }
@@ -134,16 +281,25 @@ namespace D.A.S.H.Pages
             {
                 var afterAt = input.Split(" at ").LastOrDefault();
 
-                // If "at" is followed by time, don't treat it as location
-                if (afterAt != null &&
-                    (afterAt.Contains("AM", StringComparison.OrdinalIgnoreCase) ||
-                     afterAt.Contains("PM", StringComparison.OrdinalIgnoreCase) ||
-                     char.IsDigit(afterAt.Trim()[0])))
-                {
+                if (string.IsNullOrWhiteSpace(afterAt))
                     return "Not specified";
-                }
+
+                var trimmed = afterAt.Trim();
+
+              
+                if (char.IsDigit(trimmed[0]))
+                    return "Not specified";
+
+                if (trimmed.StartsWith("am") || trimmed.StartsWith("pm"))
+                    return "Not specified";
 
                 return CleanLocation(afterAt);
+            }
+
+            if (lower.Contains(" to "))
+            {
+                var location = input.Split(" to ").LastOrDefault();
+                return CleanLocation(location);
             }
 
             return "Not specified";
@@ -156,14 +312,12 @@ namespace D.A.S.H.Pages
 
             location = location.Trim();
 
-            // remove time words from location
             location = location.Replace("tomorrow", "", StringComparison.OrdinalIgnoreCase);
             location = location.Replace("today", "", StringComparison.OrdinalIgnoreCase);
-            location = location.Replace("at 8", "", StringComparison.OrdinalIgnoreCase);
-            location = location.Replace("at 3 pm", "", StringComparison.OrdinalIgnoreCase);
-            location = location.Replace("3 pm", "", StringComparison.OrdinalIgnoreCase);
-            location = location.Replace("8 pm", "", StringComparison.OrdinalIgnoreCase);
-            location = location.Replace("8 am", "", StringComparison.OrdinalIgnoreCase);
+
+            var atIndex = location.IndexOf(" at ", StringComparison.OrdinalIgnoreCase);
+            if (atIndex >= 0)
+                location = location.Substring(0, atIndex);
 
             return string.IsNullOrWhiteSpace(location)
                 ? "Not specified"
@@ -190,7 +344,6 @@ namespace D.A.S.H.Pages
                 {
                     string nextWord = words[i + 1];
 
-                    // ignore time/location keywords
                     if (!nextWord.Equals("tomorrow", StringComparison.OrdinalIgnoreCase) &&
                         !nextWord.Equals("today", StringComparison.OrdinalIgnoreCase) &&
                         !nextWord.Equals("at", StringComparison.OrdinalIgnoreCase) &&
@@ -201,7 +354,6 @@ namespace D.A.S.H.Pages
                 }
             }
 
-            // still support "with Sarah"
             if (input.ToLower().Contains(" with "))
             {
                 var person = input.Split(" with ").LastOrDefault();
@@ -242,8 +394,6 @@ namespace D.A.S.H.Pages
             if (title.Contains(" at ", StringComparison.OrdinalIgnoreCase))
                 title = title.Split(" at ", StringSplitOptions.None)[0];
 
-            if (title.Contains(" with ", StringComparison.OrdinalIgnoreCase))
-                title = title.Split(" with ", StringSplitOptions.None)[0];
 
             if (title.Contains(" in ", StringComparison.OrdinalIgnoreCase))
                 title = title.Split(" in ", StringSplitOptions.None)[0];

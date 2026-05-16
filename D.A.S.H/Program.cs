@@ -18,8 +18,10 @@ builder.Services.AddScoped<ITaskRepository, TaskRepository>();
 builder.Services.AddScoped<IAIService, MockAIService>();
 builder.Services.AddScoped<TaskRepository>();
 builder.Services.AddScoped<IAiService, AiService>();
+builder.Services.AddSession();
 
 var app = builder.Build();
+app.UseSession();
 
 // Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())
