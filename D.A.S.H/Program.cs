@@ -18,7 +18,15 @@ builder.Services.AddScoped<ITaskRepository, TaskRepository>();
 builder.Services.AddScoped<IAIService, MockAIService>();
 builder.Services.AddScoped<TaskRepository>();
 builder.Services.AddScoped<IAiService, AiService>();
-builder.Services.AddSession();
+builder.Services.AddSession(options =>
+{
+    //options.IdleTimeout = TimeSpan.FromMinutes(30); 
+
+    options.Cookie.Name = ".DASH.SessionId";
+    options.Cookie.HttpOnly = true;
+    options.Cookie.IsEssential = true;
+    options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+});
 
 var app = builder.Build();
 app.UseSession();
