@@ -4,7 +4,6 @@ using DAL.Data;
 using DAL.Repositories;
 using Domain.Interfaces;
 using Microsoft.EntityFrameworkCore;
-using AI_Integration;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -15,7 +14,6 @@ builder.Services.AddDbContext<AssistantDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 builder.Services.AddScoped<ITaskRepository, TaskRepository>();
-builder.Services.AddScoped<IAIService, MockAIService>();
 builder.Services.AddScoped<TaskRepository>();
 builder.Services.AddScoped<IAiService, AiService>();
 builder.Services.AddSession();

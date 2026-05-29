@@ -1,4 +1,5 @@
 ﻿using Domain.Models;
+using Microsoft.Extensions.Configuration;
 using System.Text;
 using System.Text.Json;
 
@@ -6,20 +7,25 @@ namespace AI_Integration
 {
     public class AiService : IAiService
     {
-        private static readonly HttpClient _client = new HttpClient
-        {
-            BaseAddress = new Uri("http://localhost:11434/")
-        };
+        private readonly HttpClient _client;
+        private readonly string _model;
 
-        public AiService()
+        public AiService(IConfiguration configuration)
         {
+            var baseUrl = configuration["AI:BaseUrl"] ?? "http://localhost:11434/";
+            _model = configuration["AI:Model"] ?? "tinyllama";
+
+            _client = new HttpClient
+            {
+                BaseAddress = new Uri(baseUrl)
+            };
         }
 
         public async Task<ExtractedFacts?> ExtractFactsAsync(string userInput)
         {
             var obj = new
             {
-                model = "tinyllama",
+                model = _model,
                 stream = false,
                 messages = new[]
                 {
