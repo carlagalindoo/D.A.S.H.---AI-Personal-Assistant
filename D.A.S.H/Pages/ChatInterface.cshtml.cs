@@ -110,7 +110,7 @@ namespace D.A.S.H.Pages
                     Title = GetValueOrFallback(facts?.What, ExtractTitle(input)),
                     Description = input,
                     Date = ParseDate(GetValueOrFallback(facts?.When, input)),
-                    Time = ParseTime(GetValueOrFallback(facts?.When, input)),
+                    Time = ParseTime(GetValueOrFallback(facts?.When, input)).TimeOfDay, // <-- FIXED LINE
                     Location = GetValueOrFallback(facts?.Where, ExtractLocation(input)),
                     People = GetValueOrFallback(facts?.Who, ExtractPeople(input)),
                     SessionKey = "1"
@@ -216,7 +216,7 @@ namespace D.A.S.H.Pages
             if (!string.IsNullOrWhiteSpace(newWhen))
             {
                 taskToUpdate.Date = ParseDate(newWhen);
-                taskToUpdate.Time = ParseTime(newWhen);
+                taskToUpdate.Time = ParseTime(newWhen).TimeOfDay;
             }
 
             if (!string.IsNullOrWhiteSpace(newWhere))

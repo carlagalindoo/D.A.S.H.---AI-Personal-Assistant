@@ -36,7 +36,7 @@
                         <td>@task.Title</td>
                         <td>@task.Description</td>
                         <td>@task.Date.ToString("dd/MM/yyyy")</td>
-                        <td>@task.Time.ToString("h:mm tt")</td>
+                        <td>@DateTime.Today.Add(task.Time).ToString("h:mm tt", System.Globalization.CultureInfo.InvariantCulture)</td>
                         <td>@task.Location</td>
                         <td>@task.People</td>
                         <td>
@@ -49,7 +49,7 @@
             else
             {
                 <tr>
-                    <td colspan="8" class="text-center">No tasks found.</td>
+                    <td colspan="9" class="text-center">No tasks found.</td>
                 </tr>
             }
         </tbody>

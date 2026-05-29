@@ -29,8 +29,14 @@
 
         <div class="mb-3">
             <label asp-for="TaskItem.Date" class="form-label"></label>
-            <input asp-for="TaskItem.Date" type="datetime-local" class="form-control" />
+            <input asp-for="TaskItem.Date" type="date" class="form-control" />
             <span asp-validation-for="TaskItem.Date" class="text-danger"></span>
+        </div>
+
+        <div class="mb-3">
+            <label asp-for="TaskItem.Time" class="form-label"></label>
+            <input asp-for="TaskItem.Time" type="time" asp-format="{0:HH:mm}" class="form-control" />
+            <span asp-validation-for="TaskItem.Time" class="text-danger"></span>
         </div>
 
         <div class="mb-3">
