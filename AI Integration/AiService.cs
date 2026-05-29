@@ -1,6 +1,7 @@
 ﻿using Domain.Models;
 using System.Text;
 using System.Text.Json;
+using static Microsoft.EntityFrameworkCore.DbLoggerCategory;
 
 namespace AI_Integration
 {
@@ -19,14 +20,88 @@ namespace AI_Integration
         {
             var obj = new
             {
-                model = "tinyllama",
+                model = "mistral",
                 stream = false,
                 messages = new[]
                 {
                     new
                     {
                         role = "system",
-                        content = "Return ONLY JSON in this exact format: {\"Action\":\"\",\"Who\":\"\",\"What\":\"\",\"Where\":\"\",\"When\":\"\"}. Action must be one of: Create, Read, Update, Delete. No explanation. No markdown."
+                        content = @"You are a task assistant.
+
+                        Return ONLY valid JSON.
+                        No explanation.
+                        No markdown.
+
+                        Action must be one of:
+                        Create, Read, Update, Delete.
+
+                        For CREATE, use:
+                        {
+                            ""Action"": ""Create"",
+                            ""Who"": """",
+                            ""What"": """",
+                            ""Where"": """",
+                            ""When"": """",
+                            ""TargetTask"": """",
+                            ""NewTitle"": """",
+                            ""NewWhen"": """",
+                            ""NewWhere"": """",
+                            ""NewWho"": """"
+                        }
+
+                        For READ, use:
+                        {
+                            ""Action"": ""Read"",
+                            ""Who"": """",
+                            ""What"": """",
+                            ""Where"": """",
+                            ""When"": """",
+                            ""TargetTask"": """",
+                            ""NewTitle"": """",
+                            ""NewWhen"": """",
+                            ""NewWhere"": """",
+                            ""NewWho"": """"
+                        }
+
+                        For DELETE, use:
+                        {
+                            ""Action"": ""Delete"",
+                            ""Who"": """",
+                            ""What"": """",
+                            ""Where"": """",
+                            ""When"": """",
+                            ""TargetTask"": """",
+                            ""NewTitle"": """",
+                            ""NewWhen"": """",
+                            ""NewWhere"": """",
+                            ""NewWho"": """"
+                        }
+
+                        For update requests:
+                        - TargetTask is the existing task to find.
+                        - NewTitle is the new title only if the title changes.
+                        - NewWhen is the new date/time only if date or time changes.
+                        - NewWhere is the new location only if location changes.
+                        - NewWho is the new person only if person changes.
+
+                        Example:
+                        User: update Walk Bella to 6 PM
+
+                        JSON:
+                        {
+                            ""Action"": ""Update"",
+                            ""Who"": """",
+                            ""What"": """",
+                            ""Where"": """",
+                            ""When"": """",
+                            ""TargetTask"": ""Walk Bella"",
+                            ""NewTitle"": """",
+                            ""NewWhen"": ""6 PM"",
+                            ""NewWhere"": """",
+                            ""NewWho"": """"
+                        }"
+
                     },
                     new
                     {
