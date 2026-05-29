@@ -387,44 +387,35 @@ namespace D.A.S.H.Pages
             if (!input.Contains(" at "))
                 return DateTime.Today.AddHours(9);
 
-            var afterAt = input.Split(" at ").Last().Trim();
+            // Split the input on ' at '
+            var chunks = input.Split(" at ", StringSplitOptions.RemoveEmptyEntries);
 
-            var parts = afterAt.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-
-            if (parts.Length == 0)
-                return DateTime.Today.AddHours(9);
-
-            string timePart = parts[0];
-            string ampm = parts.Length > 1 ? parts[1] : "";
-
-            int hour;
-            int minute = 0;
-
-            if (timePart.Contains(":"))
+            // Iterate over all chunks after the first ' at '
+            for (int i = 1; i < chunks.Length; i++)
             {
-                var timePieces = timePart.Split(":");
+                var afterAt = chunks[i].Trim();
 
-                if (!int.TryParse(timePieces[0], out hour))
-                    return DateTime.Today.AddHours(9);
+                // Regex string to match formats like "8", "8am", "8:30 pm", "14:00"
+                var match = Regex.Match(afterAt, @"^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?");
+                if (match.Success)
+                {
+                    int hour = int.Parse(match.Groups[1].Value);
+                    int minute = match.Groups[2].Success ? int.Parse(match.Groups[2].Value) : 0;
+                    string ampm = match.Groups[3].Value; // Extracts "am", "pm", or ""
 
-                int.TryParse(timePieces[1], out minute);
+                    if (ampm == "pm" && hour < 12)
+                        hour += 12;
+
+                    if (ampm == "am" && hour == 12)
+                        hour = 0;
+
+                    if (hour >= 0 && hour <= 23)
+                        return DateTime.Today.AddHours(hour).AddMinutes(minute);
+                }
             }
-            else
-            {
-                if (!int.TryParse(timePart, out hour))
-                    return DateTime.Today.AddHours(9);
-            }
 
-            if (ampm == "pm" && hour < 12)
-                hour += 12;
-
-            if (ampm == "am" && hour == 12)
-                hour = 0;
-
-            if (hour < 0 || hour > 23)
-                return DateTime.Today.AddHours(9);
-
-            return DateTime.Today.AddHours(hour).AddMinutes(minute);
+            // Fallback to 9 AM if no valid time was found
+            return DateTime.Today.AddHours(9);
         }
 
         private string ExtractLocation(string input)
