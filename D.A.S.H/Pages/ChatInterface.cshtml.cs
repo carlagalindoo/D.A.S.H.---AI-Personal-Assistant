@@ -72,6 +72,19 @@ namespace D.A.S.H.Pages
                 return;
             }
 
+            bool isUpdateRequest =
+            lowerInput.StartsWith("update") ||
+            lowerInput.StartsWith("change") ||
+            lowerInput.StartsWith("edit");
+
+            if (isUpdateRequest)
+            {
+                await HandleUpdateAsync(currentInput);
+                SaveChatMessages();
+                UserRequest = string.Empty;
+                return;
+            }
+
             await HandleCreateAsync(currentInput);
 
             SaveChatMessages();
@@ -152,6 +165,98 @@ namespace D.A.S.H.Pages
             AddAiMessage(response, IntentType.Create);
         }
 
+        private async System.Threading.Tasks.Task HandleUpdateAsync(string input)
+        {
+            var tasks = await _taskRepository.GetAllAsync();
+
+            // Strip the command word, then try to split "old value" from "new value"
+            // e.g. "update meeting with John to tomorrow at 4pm"
+            var stripped = input
+                .Replace("update", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("change", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("edit", "", StringComparison.OrdinalIgnoreCase)
+                .Trim();
+
+            // Try to find the task by matching the first part of the input
+            // Split on " to " so "meeting to tomorrow at 4pm" → search for "meeting"
+            string searchText = stripped.Contains(" to ", StringComparison.OrdinalIgnoreCase)
+                ? stripped.Split(" to ", StringSplitOptions.None)[0].Trim()
+                : stripped;
+
+            var taskToUpdate = tasks.FirstOrDefault(t =>
+                t.Title.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+                t.Description.Contains(searchText, StringComparison.OrdinalIgnoreCase)
+            );
+
+            if (taskToUpdate == null)
+            {
+                AddAiMessage($"I could not find a task matching '{searchText}'.", IntentType.Update);
+                return;
+            }
+
+            // Send the FULL original input to the AI so it can extract the new values
+            var facts = await _aiService.ExtractFactsAsync(input);
+
+            bool updated = false;
+
+            if (!string.IsNullOrWhiteSpace(facts?.What) &&
+                facts.What != "*" &&
+                facts.What.ToLower() != "not specified")
+            {
+                taskToUpdate.Title = facts.What;
+                updated = true;
+            }
+
+            if (!string.IsNullOrWhiteSpace(facts?.When) &&
+                facts.When != "*" &&
+                facts.When.ToLower() != "not specified")
+            {
+                taskToUpdate.Date = ParseDate(facts.When);
+                taskToUpdate.Time = ParseTime(facts.When);
+                updated = true;
+            }
+
+            if (!string.IsNullOrWhiteSpace(facts?.Where) &&
+                facts.Where != "*" &&
+                facts.Where.ToLower() != "not specified")
+            {
+                taskToUpdate.Location = facts.Where;
+                updated = true;
+            }
+
+            if (!string.IsNullOrWhiteSpace(facts?.Who) &&
+                facts.Who != "*" &&
+                facts.Who.ToLower() != "not specified")
+            {
+                taskToUpdate.People = facts.Who;
+                updated = true;
+            }
+
+            if (!updated)
+            {
+                AddAiMessage($"I found '{taskToUpdate.Title}' but couldn't understand what to change. Try something like: 'update meeting to tomorrow at 4pm'.", IntentType.Update);
+                return;
+            }
+
+            await _taskRepository.UpdateAsync(taskToUpdate);
+
+            var summary = new List<string>();
+
+            if (!string.IsNullOrWhiteSpace(facts?.What) && facts.What != "*" && facts.What.ToLower() != "not specified")
+                summary.Add($"title to '{taskToUpdate.Title}'");
+
+            if (!string.IsNullOrWhiteSpace(facts?.When) && facts.When != "*" && facts.When.ToLower() != "not specified")
+                summary.Add($"time to {taskToUpdate.Time:hh\\:mm} on {taskToUpdate.Date:dd/MM/yyyy}");
+
+            if (!string.IsNullOrWhiteSpace(facts?.Where) && facts.Where != "*" && facts.Where.ToLower() != "not specified")
+                summary.Add($"location to '{taskToUpdate.Location}'");
+
+            if (!string.IsNullOrWhiteSpace(facts?.Who) && facts.Who != "*" && facts.Who.ToLower() != "not specified")
+                summary.Add($"people to '{taskToUpdate.People}'");
+
+            AddAiMessage($"Updated '{taskToUpdate.Title}': changed {string.Join(", ", summary)}.", IntentType.Update);
+        }
+
         private string GetValueOrFallback(string? aiValue, string fallback)
         {
             if (string.IsNullOrWhiteSpace(aiValue))
@@ -217,22 +322,21 @@ namespace D.A.S.H.Pages
             return DateTime.Today;
         }
 
-        private DateTime ParseTime(string? input)
+        private TimeSpan ParseTime(string? input)
         {
             if (string.IsNullOrWhiteSpace(input))
-                return DateTime.Today.AddHours(9);
+                return new TimeSpan(9, 0, 0);
 
             input = input.ToLower();
 
             if (!input.Contains(" at "))
-                return DateTime.Today.AddHours(9);
+                return new TimeSpan(9, 0, 0);
 
             var afterAt = input.Split(" at ").Last().Trim();
-
             var parts = afterAt.Split(' ', StringSplitOptions.RemoveEmptyEntries);
 
             if (parts.Length == 0)
-                return DateTime.Today.AddHours(9);
+                return new TimeSpan(9, 0, 0);
 
             string timePart = parts[0];
             string ampm = parts.Length > 1 ? parts[1] : "";
@@ -243,28 +347,21 @@ namespace D.A.S.H.Pages
             if (timePart.Contains(":"))
             {
                 var timePieces = timePart.Split(":");
-
                 if (!int.TryParse(timePieces[0], out hour))
-                    return DateTime.Today.AddHours(9);
-
+                    return new TimeSpan(9, 0, 0);
                 int.TryParse(timePieces[1], out minute);
             }
             else
             {
                 if (!int.TryParse(timePart, out hour))
-                    return DateTime.Today.AddHours(9);
+                    return new TimeSpan(9, 0, 0);
             }
 
-            if (ampm == "pm" && hour < 12)
-                hour += 12;
+            if (ampm == "pm" && hour < 12) hour += 12;
+            if (ampm == "am" && hour == 12) hour = 0;
+            if (hour < 0 || hour > 23) return new TimeSpan(9, 0, 0);
 
-            if (ampm == "am" && hour == 12)
-                hour = 0;
-
-            if (hour < 0 || hour > 23)
-                return DateTime.Today.AddHours(9);
-
-            return DateTime.Today.AddHours(hour).AddMinutes(minute);
+            return new TimeSpan(hour, minute, 0);
         }
 
         private string ExtractLocation(string input)

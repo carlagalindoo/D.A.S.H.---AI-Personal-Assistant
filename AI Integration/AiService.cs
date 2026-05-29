@@ -32,7 +32,10 @@ namespace AI_Integration
                     new
                     {
                         role = "system",
-                        content = "Return ONLY JSON in this exact format: {\"Action\":\"\",\"Who\":\"\",\"What\":\"\",\"Where\":\"\",\"When\":\"\"}. Action must be one of: Create, Read, Update, Delete. No explanation. No markdown."
+                        content = "Return ONLY valid JSON in this exact format, nothing else: " +
+                                  "{\"Action\":\"\",\"Who\":\"\",\"What\":\"\",\"Where\":\"\",\"When\":\"\"}. " +
+                                  "Action must be exactly one of: Create, Read, Update, Delete. " +
+                                  "If a field is unknown, use an empty string. No explanation. No markdown. No extra text."
                     },
                     new
                     {
