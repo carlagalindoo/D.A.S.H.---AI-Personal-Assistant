@@ -43,7 +43,6 @@ namespace D.A.S.H.Pages
             }
 
             var currentInput = UserRequest.Trim();
-            var lowerInput = currentInput.ToLower();
 
             AddUserMessage(currentInput);
 
@@ -54,12 +53,13 @@ namespace D.A.S.H.Pages
                 lowerInput.StartsWith("cancel") ||
                 lowerInput.StartsWith("get rid of");
 
-            if (isDeleteRequest)
+            try
             {
-                await HandleDeleteAsync(currentInput);
-                SaveChatMessages();
-                UserRequest = string.Empty;
-                return;
+                facts = await _aiService.ExtractFactsAsync(currentInput);
+            }
+            catch
+            {
+                facts = null;
             }
 
             bool isReadRequest =
@@ -70,7 +70,8 @@ namespace D.A.S.H.Pages
                 lowerInput.Contains("display") ||
                 lowerInput.Contains("see");
 
-            if (isReadRequest)
+            // 1. Ollama decides first
+            if (action == "read")
             {
                 //await HandleReadAsync();
                 await HandleReadAsync(currentInput);
@@ -90,12 +91,33 @@ namespace D.A.S.H.Pages
             if (isUpdateRequest)
             {
                 await HandleUpdateAsync(currentInput);
-                SaveChatMessages();
-                UserRequest = string.Empty;
-                return;
+            }
+            else if (action == "delete")
+            {
+                await HandleDeleteAsync(currentInput);
+            }
+            else if (action == "create")
+            {
+                await HandleCreateAsync(currentInput);
             }
 
-            await HandleCreateAsync(currentInput);
+            // 2. Fallback only if Ollama action is unclear
+            else if (LooksLikeUpdateRequest(currentInput))
+            {
+                await HandleUpdateAsync(currentInput);
+            }
+            else if (LooksLikeReadRequest(currentInput))
+            {
+                await HandleReadAsync(currentInput);
+            }
+            else if (LooksLikeDeleteRequest(currentInput))
+            {
+                await HandleDeleteAsync(currentInput);
+            }
+            else
+            {
+                await HandleCreateAsync(currentInput);
+            }
 
             SaveChatMessages();
             UserRequest = string.Empty;
@@ -112,7 +134,7 @@ namespace D.A.S.H.Pages
                     Title = GetValueOrFallback(facts?.What, ExtractTitle(input)),
                     Description = input,
                     Date = ParseDate(GetValueOrFallback(facts?.When, input)),
-                    Time = ParseTime(GetValueOrFallback(facts?.When, input)),
+                    Time = ParseTime(GetValueOrFallback(facts?.When, input)).TimeOfDay, // <-- FIXED LINE
                     Location = GetValueOrFallback(facts?.Where, ExtractLocation(input)),
                     People = GetValueOrFallback(facts?.Who, ExtractPeople(input)),
                     SessionKey = "1"
@@ -132,13 +154,36 @@ namespace D.A.S.H.Pages
 
         private async System.Threading.Tasks.Task HandleDeleteAsync(string input)
         {
+            var facts = await _aiService.ExtractFactsAsync(input);
             var tasks = await _taskRepository.GetAllAsync();
 
-            var searchText = input
-                .Replace("delete", "", StringComparison.OrdinalIgnoreCase)
-                .Replace("remove", "", StringComparison.OrdinalIgnoreCase)
-                .Replace("task", "", StringComparison.OrdinalIgnoreCase)
-                .Trim();
+            string searchText = "";
+
+            // 1. Ollama first
+            if (!string.IsNullOrWhiteSpace(facts?.What))
+            {
+                searchText = facts.What;
+            }
+            else if (!string.IsNullOrWhiteSpace(facts?.Who))
+            {
+                searchText = facts.Who;
+            }
+
+            // 2. Fallback if Ollama gives nothing useful
+            if (string.IsNullOrWhiteSpace(searchText) ||
+                searchText == "*" ||
+                searchText.ToLower() == "unknown" ||
+                searchText.ToLower() == "not specified")
+            {
+                searchText = input
+                    .Replace("delete", "", StringComparison.OrdinalIgnoreCase)
+                    .Replace("remove", "", StringComparison.OrdinalIgnoreCase)
+                    .Replace("task", "", StringComparison.OrdinalIgnoreCase)
+                    .Replace("with", "", StringComparison.OrdinalIgnoreCase)
+                    .Replace("the", "", StringComparison.OrdinalIgnoreCase)
+                    .Replace("?", "", StringComparison.OrdinalIgnoreCase)
+                    .Trim();
+            }
 
             var matchingTasks = tasks.Where(t =>
                 t.Title.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
@@ -342,6 +387,36 @@ namespace D.A.S.H.Pages
             return aiValue.Trim();
         }
 
+        private bool LooksLikeUpdateRequest(string input)
+        {
+            input = input.ToLower();
+
+            return input.StartsWith("update") ||
+                   input.StartsWith("change") ||
+                   input.Contains("update") ||
+                   input.Contains("change");
+        }
+
+        private bool LooksLikeReadRequest(string input)
+        {
+            input = input.ToLower();
+
+            return input.Contains("do i have") ||
+                   input.Contains("any tasks") ||
+                   input.Contains("show") ||
+                   input.Contains("list") ||
+                   input.Contains("read") ||
+                   input.Contains("tasks with");
+        }
+
+        private bool LooksLikeDeleteRequest(string input)
+        {
+            input = input.ToLower();
+
+            return input.StartsWith("delete") ||
+                   input.StartsWith("remove");
+        }
+
         private void AddUserMessage(string text)
         {
             ChatMessages.Add(new Message
@@ -396,46 +471,33 @@ namespace D.A.S.H.Pages
             return DateTime.Today;
         }
 
-        private TimeSpan ParseTime(string? input)
+        private DateTime ParseTime(string? input)
         {
             if (string.IsNullOrWhiteSpace(input))
-                return new TimeSpan(9, 0, 0);
+                return DateTime.Today.AddHours(9);
 
             input = input.ToLower();
 
-            if (!input.Contains(" at "))
-                return new TimeSpan(9, 0, 0);
-
-            var afterAt = input.Split(" at ").Last().Trim();
-            var parts = afterAt.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-
-            if (parts.Length == 0)
-                return new TimeSpan(9, 0, 0);
-
-            string timePart = parts[0];
-            string ampm = parts.Length > 1 ? parts[1] : "";
-
-            int hour;
-            int minute = 0;
-
-            if (timePart.Contains(":"))
+            // Match strings dynamically (e.g. "8", "8am", "8:30 pm", "14:00") regardless of "at "
+            var match = Regex.Match(input, @"\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b", RegexOptions.IgnoreCase);
+            if (match.Success)
             {
-                var timePieces = timePart.Split(":");
-                if (!int.TryParse(timePieces[0], out hour))
-                    return new TimeSpan(9, 0, 0);
-                int.TryParse(timePieces[1], out minute);
-            }
-            else
-            {
-                if (!int.TryParse(timePart, out hour))
-                    return new TimeSpan(9, 0, 0);
+                int hour = int.Parse(match.Groups[1].Value);
+                int minute = match.Groups[2].Success ? int.Parse(match.Groups[2].Value) : 0;
+                string ampm = match.Groups[3].Value;
+
+                if (ampm == "pm" && hour < 12)
+                    hour += 12;
+
+                if (ampm == "am" && hour == 12)
+                    hour = 0;
+
+                if (hour >= 0 && hour <= 23)
+                    return DateTime.Today.AddHours(hour).AddMinutes(minute);
             }
 
-            if (ampm == "pm" && hour < 12) hour += 12;
-            if (ampm == "am" && hour == 12) hour = 0;
-            if (hour < 0 || hour > 23) return new TimeSpan(9, 0, 0);
-
-            return new TimeSpan(hour, minute, 0);
+            // Fallback to 9 AM if no valid time was found
+            return DateTime.Today.AddHours(9);
         }
 
         private string ExtractLocation(string input)
@@ -457,7 +519,7 @@ namespace D.A.S.H.Pages
 
                 var trimmed = afterAt.Trim();
 
-              
+
                 if (char.IsDigit(trimmed[0]))
                     return "Not specified";
 
@@ -572,6 +634,31 @@ namespace D.A.S.H.Pages
             return string.IsNullOrWhiteSpace(title)
                 ? input
                 : title.Trim();
+        }
+
+        private string ExtractUpdateTarget(string input)
+        {
+            var text = input
+                .Replace("update", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("change", "", StringComparison.OrdinalIgnoreCase)
+                .Trim();
+
+            if (text.Contains(" to ", StringComparison.OrdinalIgnoreCase))
+            {
+                return text.Split(" to ", StringSplitOptions.None)[0].Trim();
+            }
+
+            return text;
+        }
+
+        private string ExtractUpdateNewValue(string input)
+        {
+            if (input.Contains(" to ", StringComparison.OrdinalIgnoreCase))
+            {
+                return input.Split(" to ", StringSplitOptions.None).Last().Trim();
+            }
+
+            return "";
         }
     }
 }
