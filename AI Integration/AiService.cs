@@ -1,4 +1,5 @@
 ﻿using Domain.Models;
+using Microsoft.Extensions.Configuration;
 using System.Text;
 using System.Text.Json;
 
@@ -6,27 +7,35 @@ namespace AI_Integration
 {
     public class AiService : IAiService
     {
-        private static readonly HttpClient _client = new HttpClient
-        {
-            BaseAddress = new Uri("http://localhost:11434/")
-        };
+        private readonly HttpClient _client;
+        private readonly string _model;
 
-        public AiService()
+        public AiService(IConfiguration configuration)
         {
+            var baseUrl = configuration["AI:BaseUrl"] ?? "http://localhost:11434/";
+            _model = configuration["AI:Model"] ?? "tinyllama";
+
+            _client = new HttpClient
+            {
+                BaseAddress = new Uri(baseUrl)
+            };
         }
 
         public async Task<ExtractedFacts?> ExtractFactsAsync(string userInput)
         {
             var obj = new
             {
-                model = "tinyllama",
+                model = _model,
                 stream = false,
                 messages = new[]
                 {
                     new
                     {
                         role = "system",
-                        content = "Return ONLY JSON in this exact format: {\"Action\":\"\",\"Who\":\"\",\"What\":\"\",\"Where\":\"\",\"When\":\"\"}. Action must be one of: Create, Read, Update, Delete. No explanation. No markdown."
+                        content = "Return ONLY valid JSON in this exact format, nothing else: " +
+                                  "{\"Action\":\"\",\"Who\":\"\",\"What\":\"\",\"Where\":\"\",\"When\":\"\"}. " +
+                                  "Action must be exactly one of: Create, Read, Update, Delete. " +
+                                  "If a field is unknown, use an empty string. No explanation. No markdown. No extra text."
                     },
                     new
                     {
