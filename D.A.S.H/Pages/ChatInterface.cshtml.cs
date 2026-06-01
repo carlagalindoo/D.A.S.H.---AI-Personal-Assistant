@@ -354,8 +354,8 @@ namespace D.A.S.H.Pages
                 : stripped;
 
             var matchingTasks = tasks.Where(t =>
-                t.Title.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
-                t.Description.Contains(searchText, StringComparison.OrdinalIgnoreCase)
+                FuzzyContains(t.Title, searchText, maxDistance: 2) ||
+                FuzzyContains(t.Description, searchText, maxDistance: 2)
             ).ToList();
 
             if (!matchingTasks.Any())
@@ -466,7 +466,10 @@ namespace D.A.S.H.Pages
                    input.Contains("show") ||
                    input.Contains("list") ||
                    input.Contains("read") ||
-                   input.Contains("tasks with");
+                   input.Contains("tasks with") ||
+                   input.Contains("view") ||
+                   input.Contains("display") ||
+                   input.Contains("see");
         }
 
         private bool LooksLikeDeleteRequest(string input)
@@ -719,6 +722,63 @@ namespace D.A.S.H.Pages
             }
 
             return "";
+        }
+
+        private int CalculateDistance(string source, string target)
+        {
+            if (string.IsNullOrEmpty(source)) return string.IsNullOrEmpty(target) ? 0 : target.Length;
+            if (string.IsNullOrEmpty(target)) return source.Length;
+
+            int[,] distance = new int[source.Length + 1, target.Length + 1];
+
+            for (int i = 0; i <= source.Length; distance[i, 0] = i++) ;
+            for (int j = 0; j <= target.Length; distance[0, j] = j++) ;
+
+            for (int i = 1; i <= source.Length; i++)
+            {
+                for (int j = 1; j <= target.Length; j++)
+                {
+                    int cost = (target[j - 1] == source[i - 1]) ? 0 : 1;
+                    distance[i, j] = Math.Min(
+                        Math.Min(distance[i - 1, j] + 1, distance[i, j - 1] + 1),
+                        distance[i - 1, j - 1] + cost);
+                }
+            }
+            return distance[source.Length, target.Length];
+        }
+
+        private bool FuzzyContains(string text, string query, int maxDistance = 2)
+        {
+            if (string.IsNullOrWhiteSpace(text) || string.IsNullOrWhiteSpace(query)) return false;
+
+            text = text.ToLower();
+            query = query.ToLower();
+
+            // Direct match check first
+            if (text.Contains(query)) return true;
+
+            // Split into words and check distance for typos
+            var textWords = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            var queryWords = query.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+            foreach (var qWord in queryWords)
+            {
+                bool wordFound = false;
+                foreach (var tWord in textWords)
+                {
+                    // If a word is within 'maxDistance' edits, consider it a match
+                    if (CalculateDistance(tWord, qWord) <= maxDistance)
+                    {
+                        wordFound = true;
+                        break;
+                    }
+                }
+                
+                // If a significant word in the query fails entirely, return false
+                if (!wordFound && qWord.Length > 2) return false;
+            }
+
+            return true; // All significant query words had a fuzzy match
         }
     }
 }
