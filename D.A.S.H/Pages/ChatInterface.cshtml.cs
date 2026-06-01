@@ -43,49 +43,57 @@ namespace D.A.S.H.Pages
             }
 
             var currentInput = UserRequest.Trim();
-            var lowerInput = currentInput.ToLower();
 
             AddUserMessage(currentInput);
 
-            bool isDeleteRequest =
-                lowerInput.StartsWith("delete") ||
-                lowerInput.StartsWith("remove");
+            ExtractedFacts? facts = null;
 
-            if (isDeleteRequest)
+            try
             {
-                await HandleDeleteAsync(currentInput);
-                SaveChatMessages();
-                UserRequest = string.Empty;
-                return;
+                facts = await _aiService.ExtractFactsAsync(currentInput);
+            }
+            catch
+            {
+                facts = null;
             }
 
-            bool isReadRequest =
-                lowerInput.Contains("show") ||
-                lowerInput.Contains("list") ||
-                lowerInput.Contains("read");
+            var action = facts?.Action?.ToLower();
 
-            if (isReadRequest)
+            // 1. Ollama decides first
+            if (action == "read")
             {
-                await HandleReadAsync();
-                SaveChatMessages();
-                UserRequest = string.Empty;
-                return;
+                await HandleReadAsync(currentInput);
             }
-
-            bool isUpdateRequest =
-            lowerInput.StartsWith("update") ||
-            lowerInput.StartsWith("change") ||
-            lowerInput.StartsWith("edit");
-
-            if (isUpdateRequest)
+            else if (action == "update")
             {
                 await HandleUpdateAsync(currentInput);
-                SaveChatMessages();
-                UserRequest = string.Empty;
-                return;
+            }
+            else if (action == "delete")
+            {
+                await HandleDeleteAsync(currentInput);
+            }
+            else if (action == "create")
+            {
+                await HandleCreateAsync(currentInput);
             }
 
-            await HandleCreateAsync(currentInput);
+            // 2. Fallback only if Ollama action is unclear
+            else if (LooksLikeUpdateRequest(currentInput))
+            {
+                await HandleUpdateAsync(currentInput);
+            }
+            else if (LooksLikeReadRequest(currentInput))
+            {
+                await HandleReadAsync(currentInput);
+            }
+            else if (LooksLikeDeleteRequest(currentInput))
+            {
+                await HandleDeleteAsync(currentInput);
+            }
+            else
+            {
+                await HandleCreateAsync(currentInput);
+            }
 
             SaveChatMessages();
             UserRequest = string.Empty;
@@ -102,7 +110,7 @@ namespace D.A.S.H.Pages
                     Title = GetValueOrFallback(facts?.What, ExtractTitle(input)),
                     Description = input,
                     Date = ParseDate(GetValueOrFallback(facts?.When, input)),
-                    Time = ParseTime(GetValueOrFallback(facts?.When, input)),
+                    Time = ParseTime(GetValueOrFallback(facts?.When, input)).TimeOfDay, // <-- FIXED LINE
                     Location = GetValueOrFallback(facts?.Where, ExtractLocation(input)),
                     People = GetValueOrFallback(facts?.Who, ExtractPeople(input)),
                     SessionKey = "1"
@@ -122,17 +130,41 @@ namespace D.A.S.H.Pages
 
         private async System.Threading.Tasks.Task HandleDeleteAsync(string input)
         {
+            var facts = await _aiService.ExtractFactsAsync(input);
             var tasks = await _taskRepository.GetAllAsync();
 
-            var searchText = input
-                .Replace("delete", "", StringComparison.OrdinalIgnoreCase)
-                .Replace("remove", "", StringComparison.OrdinalIgnoreCase)
-                .Replace("task", "", StringComparison.OrdinalIgnoreCase)
-                .Trim();
+            string searchText = "";
+
+            // 1. Ollama first
+            if (!string.IsNullOrWhiteSpace(facts?.What))
+            {
+                searchText = facts.What;
+            }
+            else if (!string.IsNullOrWhiteSpace(facts?.Who))
+            {
+                searchText = facts.Who;
+            }
+
+            // 2. Fallback if Ollama gives nothing useful
+            if (string.IsNullOrWhiteSpace(searchText) ||
+                searchText == "*" ||
+                searchText.ToLower() == "unknown" ||
+                searchText.ToLower() == "not specified")
+            {
+                searchText = input
+                    .Replace("delete", "", StringComparison.OrdinalIgnoreCase)
+                    .Replace("remove", "", StringComparison.OrdinalIgnoreCase)
+                    .Replace("task", "", StringComparison.OrdinalIgnoreCase)
+                    .Replace("with", "", StringComparison.OrdinalIgnoreCase)
+                    .Replace("the", "", StringComparison.OrdinalIgnoreCase)
+                    .Replace("?", "", StringComparison.OrdinalIgnoreCase)
+                    .Trim();
+            }
 
             var taskToDelete = tasks.FirstOrDefault(t =>
                 t.Title.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
-                t.Description.Contains(searchText, StringComparison.OrdinalIgnoreCase)
+                t.Description.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+                t.People.Contains(searchText, StringComparison.OrdinalIgnoreCase)
             );
 
             if (taskToDelete == null)
@@ -148,7 +180,90 @@ namespace D.A.S.H.Pages
             AddAiMessage($"Deleted task: {taskToDelete.Title}", IntentType.Delete);
         }
 
-        private async System.Threading.Tasks.Task HandleReadAsync()
+        private async System.Threading.Tasks.Task HandleUpdateAsync(string input)
+        {
+            var facts = await _aiService.ExtractFactsAsync(input);
+            var tasks = await _taskRepository.GetAllAsync();
+
+            // Map facts?.TargetTask to facts?.What or rely on extraction
+            var targetTask = GetValueOrFallback(
+                facts?.What,
+                ExtractUpdateTarget(input)
+            );
+
+            // Since ExtractedFacts doesn't have dedicated 'new' properties, we rely on the manual extraction methods
+            var newTitle = GetValueOrFallback(null, ExtractUpdateNewValue(input));
+            var newWhen = GetValueOrFallback(facts?.When, newTitle); // Fallback to newTitle incase AI missed 'When'
+            var newWhere = GetValueOrFallback(facts?.Where, "");
+            var newWho = GetValueOrFallback(facts?.Who, "");
+
+            var taskToUpdate = tasks.FirstOrDefault(t =>
+                t.Title.Contains(targetTask, StringComparison.OrdinalIgnoreCase) ||
+                t.Description.Contains(targetTask, StringComparison.OrdinalIgnoreCase)
+            );
+
+            if (taskToUpdate == null)
+            {
+                AiResponse = "I could not find a matching task to update.";
+                AddAiMessage("I could not find a matching task to update.", IntentType.Create);
+                return;
+            }
+
+            // Only update Title if it doesn't strictly look like just a bare time or date adjustment
+            if (!string.IsNullOrWhiteSpace(newTitle))
+            {
+                bool isJustTimeOrDate = Regex.IsMatch(newTitle, @"^(\d{1,2})(?::(\d{2}))?\s*(am|pm)$", RegexOptions.IgnoreCase) || 
+                                        newTitle.Equals("tomorrow", StringComparison.OrdinalIgnoreCase) || 
+                                        newTitle.Equals("today", StringComparison.OrdinalIgnoreCase);
+
+                if (!isJustTimeOrDate)
+                {
+                    taskToUpdate.Title = ExtractTitle(newTitle);
+                    taskToUpdate.Description = input;
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(newWhen))
+            {
+                // Only update the Date if we explicitly find a supported date expression
+                if (newWhen.Contains("tomorrow", StringComparison.OrdinalIgnoreCase) || newWhen.Contains("today", StringComparison.OrdinalIgnoreCase))
+                {
+                    taskToUpdate.Date = ParseDate(newWhen);
+                }
+
+                // Only update the Time if we explicitly find a supported time expression
+                if (Regex.IsMatch(newWhen, @"\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b", RegexOptions.IgnoreCase))
+                {
+                    taskToUpdate.Time = ParseTime(newWhen).TimeOfDay;
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(newWhere))
+            {
+                taskToUpdate.Location = newWhere;
+            }
+
+            if (!string.IsNullOrWhiteSpace(newWho))
+            {
+                taskToUpdate.People = newWho;
+            }
+            else if (!string.IsNullOrWhiteSpace(newTitle))
+            {
+                // Extract people safely from newTitle if valid
+                var peopleCandidate = ExtractPeople(newTitle);
+                if (peopleCandidate != "Not specified")
+                {
+                    taskToUpdate.People = peopleCandidate;
+                }
+            }
+
+            await _taskRepository.UpdateAsync(taskToUpdate);
+
+            AiResponse = $"Updated task: {taskToUpdate.Title}";
+            AddAiMessage($"Updated task: {taskToUpdate.Title}", IntentType.Create);
+        }
+
+        private async System.Threading.Tasks.Task HandleReadAsync(string input)
         {
             var tasks = await _taskRepository.GetAllAsync();
 
@@ -159,102 +274,36 @@ namespace D.A.S.H.Pages
                 return;
             }
 
-            var response = "Current tasks: " + string.Join(", ", tasks.Select(t => t.Title));
+            var searchText = "";
+
+            if (input.ToLower().Contains("with "))
+            {
+                searchText = input.Split("with").Last().Trim().Replace("?", "");
+            }
+
+            if (!string.IsNullOrWhiteSpace(searchText))
+            {
+                tasks = tasks
+                    .Where(t =>
+                        t.Title.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+                        t.Description.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+                        t.People.Contains(searchText, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+            }
+
+            if (!tasks.Any())
+            {
+                AiResponse = "I could not find matching tasks.";
+                AddAiMessage("I could not find matching tasks.", IntentType.Create);
+                return;
+            }
+
+            var response = string.IsNullOrWhiteSpace(searchText)
+                ? "Current tasks: " + string.Join(", ", tasks.Select(t => t.Title))
+                : $"Tasks with {searchText}: " + string.Join(", ", tasks.Select(t => t.Title));
 
             AiResponse = response;
             AddAiMessage(response, IntentType.Create);
-        }
-
-        private async System.Threading.Tasks.Task HandleUpdateAsync(string input)
-        {
-            var tasks = await _taskRepository.GetAllAsync();
-
-            // Strip the command word, then try to split "old value" from "new value"
-            // e.g. "update meeting with John to tomorrow at 4pm"
-            var stripped = input
-                .Replace("update", "", StringComparison.OrdinalIgnoreCase)
-                .Replace("change", "", StringComparison.OrdinalIgnoreCase)
-                .Replace("edit", "", StringComparison.OrdinalIgnoreCase)
-                .Trim();
-
-            // Try to find the task by matching the first part of the input
-            // Split on " to " so "meeting to tomorrow at 4pm" → search for "meeting"
-            string searchText = stripped.Contains(" to ", StringComparison.OrdinalIgnoreCase)
-                ? stripped.Split(" to ", StringSplitOptions.None)[0].Trim()
-                : stripped;
-
-            var taskToUpdate = tasks.FirstOrDefault(t =>
-                t.Title.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
-                t.Description.Contains(searchText, StringComparison.OrdinalIgnoreCase)
-            );
-
-            if (taskToUpdate == null)
-            {
-                AddAiMessage($"I could not find a task matching '{searchText}'.", IntentType.Update);
-                return;
-            }
-
-            // Send the FULL original input to the AI so it can extract the new values
-            var facts = await _aiService.ExtractFactsAsync(input);
-
-            bool updated = false;
-
-            if (!string.IsNullOrWhiteSpace(facts?.What) &&
-                facts.What != "*" &&
-                facts.What.ToLower() != "not specified")
-            {
-                taskToUpdate.Title = facts.What;
-                updated = true;
-            }
-
-            if (!string.IsNullOrWhiteSpace(facts?.When) &&
-                facts.When != "*" &&
-                facts.When.ToLower() != "not specified")
-            {
-                taskToUpdate.Date = ParseDate(facts.When);
-                taskToUpdate.Time = ParseTime(facts.When);
-                updated = true;
-            }
-
-            if (!string.IsNullOrWhiteSpace(facts?.Where) &&
-                facts.Where != "*" &&
-                facts.Where.ToLower() != "not specified")
-            {
-                taskToUpdate.Location = facts.Where;
-                updated = true;
-            }
-
-            if (!string.IsNullOrWhiteSpace(facts?.Who) &&
-                facts.Who != "*" &&
-                facts.Who.ToLower() != "not specified")
-            {
-                taskToUpdate.People = facts.Who;
-                updated = true;
-            }
-
-            if (!updated)
-            {
-                AddAiMessage($"I found '{taskToUpdate.Title}' but couldn't understand what to change. Try something like: 'update meeting to tomorrow at 4pm'.", IntentType.Update);
-                return;
-            }
-
-            await _taskRepository.UpdateAsync(taskToUpdate);
-
-            var summary = new List<string>();
-
-            if (!string.IsNullOrWhiteSpace(facts?.What) && facts.What != "*" && facts.What.ToLower() != "not specified")
-                summary.Add($"title to '{taskToUpdate.Title}'");
-
-            if (!string.IsNullOrWhiteSpace(facts?.When) && facts.When != "*" && facts.When.ToLower() != "not specified")
-                summary.Add($"time to {taskToUpdate.Time:hh\\:mm} on {taskToUpdate.Date:dd/MM/yyyy}");
-
-            if (!string.IsNullOrWhiteSpace(facts?.Where) && facts.Where != "*" && facts.Where.ToLower() != "not specified")
-                summary.Add($"location to '{taskToUpdate.Location}'");
-
-            if (!string.IsNullOrWhiteSpace(facts?.Who) && facts.Who != "*" && facts.Who.ToLower() != "not specified")
-                summary.Add($"people to '{taskToUpdate.People}'");
-
-            AddAiMessage($"Updated '{taskToUpdate.Title}': changed {string.Join(", ", summary)}.", IntentType.Update);
         }
 
         private string GetValueOrFallback(string? aiValue, string fallback)
@@ -266,6 +315,36 @@ namespace D.A.S.H.Pages
                 return fallback;
 
             return aiValue.Trim();
+        }
+
+        private bool LooksLikeUpdateRequest(string input)
+        {
+            input = input.ToLower();
+
+            return input.StartsWith("update") ||
+                   input.StartsWith("change") ||
+                   input.Contains("update") ||
+                   input.Contains("change");
+        }
+
+        private bool LooksLikeReadRequest(string input)
+        {
+            input = input.ToLower();
+
+            return input.Contains("do i have") ||
+                   input.Contains("any tasks") ||
+                   input.Contains("show") ||
+                   input.Contains("list") ||
+                   input.Contains("read") ||
+                   input.Contains("tasks with");
+        }
+
+        private bool LooksLikeDeleteRequest(string input)
+        {
+            input = input.ToLower();
+
+            return input.StartsWith("delete") ||
+                   input.StartsWith("remove");
         }
 
         private void AddUserMessage(string text)
@@ -322,46 +401,33 @@ namespace D.A.S.H.Pages
             return DateTime.Today;
         }
 
-        private TimeSpan ParseTime(string? input)
+        private DateTime ParseTime(string? input)
         {
             if (string.IsNullOrWhiteSpace(input))
-                return new TimeSpan(9, 0, 0);
+                return DateTime.Today.AddHours(9);
 
             input = input.ToLower();
 
-            if (!input.Contains(" at "))
-                return new TimeSpan(9, 0, 0);
-
-            var afterAt = input.Split(" at ").Last().Trim();
-            var parts = afterAt.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-
-            if (parts.Length == 0)
-                return new TimeSpan(9, 0, 0);
-
-            string timePart = parts[0];
-            string ampm = parts.Length > 1 ? parts[1] : "";
-
-            int hour;
-            int minute = 0;
-
-            if (timePart.Contains(":"))
+            // Match strings dynamically (e.g. "8", "8am", "8:30 pm", "14:00") regardless of "at "
+            var match = Regex.Match(input, @"\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b", RegexOptions.IgnoreCase);
+            if (match.Success)
             {
-                var timePieces = timePart.Split(":");
-                if (!int.TryParse(timePieces[0], out hour))
-                    return new TimeSpan(9, 0, 0);
-                int.TryParse(timePieces[1], out minute);
-            }
-            else
-            {
-                if (!int.TryParse(timePart, out hour))
-                    return new TimeSpan(9, 0, 0);
+                int hour = int.Parse(match.Groups[1].Value);
+                int minute = match.Groups[2].Success ? int.Parse(match.Groups[2].Value) : 0;
+                string ampm = match.Groups[3].Value;
+
+                if (ampm == "pm" && hour < 12)
+                    hour += 12;
+
+                if (ampm == "am" && hour == 12)
+                    hour = 0;
+
+                if (hour >= 0 && hour <= 23)
+                    return DateTime.Today.AddHours(hour).AddMinutes(minute);
             }
 
-            if (ampm == "pm" && hour < 12) hour += 12;
-            if (ampm == "am" && hour == 12) hour = 0;
-            if (hour < 0 || hour > 23) return new TimeSpan(9, 0, 0);
-
-            return new TimeSpan(hour, minute, 0);
+            // Fallback to 9 AM if no valid time was found
+            return DateTime.Today.AddHours(9);
         }
 
         private string ExtractLocation(string input)
@@ -383,7 +449,7 @@ namespace D.A.S.H.Pages
 
                 var trimmed = afterAt.Trim();
 
-              
+
                 if (char.IsDigit(trimmed[0]))
                     return "Not specified";
 
@@ -498,6 +564,31 @@ namespace D.A.S.H.Pages
             return string.IsNullOrWhiteSpace(title)
                 ? input
                 : title.Trim();
+        }
+
+        private string ExtractUpdateTarget(string input)
+        {
+            var text = input
+                .Replace("update", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("change", "", StringComparison.OrdinalIgnoreCase)
+                .Trim();
+
+            if (text.Contains(" to ", StringComparison.OrdinalIgnoreCase))
+            {
+                return text.Split(" to ", StringSplitOptions.None)[0].Trim();
+            }
+
+            return text;
+        }
+
+        private string ExtractUpdateNewValue(string input)
+        {
+            if (input.Contains(" to ", StringComparison.OrdinalIgnoreCase))
+            {
+                return input.Split(" to ", StringSplitOptions.None).Last().Trim();
+            }
+
+            return "";
         }
     }
 }
