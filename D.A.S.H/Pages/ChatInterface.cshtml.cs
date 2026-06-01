@@ -451,10 +451,10 @@ namespace D.A.S.H.Pages
         {
             input = input.ToLower();
 
-            return input.StartsWith("update") ||
-                   input.StartsWith("change") ||
-                   input.Contains("update") ||
-                   input.Contains("change");
+            return FuzzyContains(input, "update", 1) ||
+                   FuzzyContains(input, "change", 1) ||
+                   FuzzyContains(input, "edit", 1) ||
+                   FuzzyContains(input, "modify", 1);
         }
 
         private bool LooksLikeReadRequest(string input)
@@ -463,21 +463,23 @@ namespace D.A.S.H.Pages
 
             return input.Contains("do i have") ||
                    input.Contains("any tasks") ||
-                   input.Contains("show") ||
-                   input.Contains("list") ||
-                   input.Contains("read") ||
                    input.Contains("tasks with") ||
-                   input.Contains("view") ||
-                   input.Contains("display") ||
-                   input.Contains("see");
+                   FuzzyContains(input, "show", 1) ||
+                   FuzzyContains(input, "list", 1) ||
+                   FuzzyContains(input, "read", 1) ||
+                   FuzzyContains(input, "view", 1) ||
+                   FuzzyContains(input, "display", 2) ||
+                   FuzzyContains(input, "see", 1);
         }
 
         private bool LooksLikeDeleteRequest(string input)
         {
             input = input.ToLower();
 
-            return input.StartsWith("delete") ||
-                   input.StartsWith("remove");
+            return FuzzyContains(input, "delete", 1) ||
+                   FuzzyContains(input, "remove", 1) ||
+                   FuzzyContains(input, "erase", 1) ||
+                   FuzzyContains(input, "cancel", 1);
         }
 
         private void AddUserMessage(string text)
