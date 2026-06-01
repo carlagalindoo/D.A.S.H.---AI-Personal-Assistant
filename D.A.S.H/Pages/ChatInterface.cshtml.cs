@@ -62,11 +62,15 @@ namespace D.A.S.H.Pages
             bool isReadRequest =
                 lowerInput.Contains("show") ||
                 lowerInput.Contains("list") ||
-                lowerInput.Contains("read");
+                lowerInput.Contains("read") ||
+                lowerInput.Contains("view") ||
+                lowerInput.Contains("display") ||
+                lowerInput.Contains("see");
 
             if (isReadRequest)
             {
-                await HandleReadAsync();
+                //await HandleReadAsync();
+                await HandleReadAsync(currentInput);
                 SaveChatMessages();
                 UserRequest = string.Empty;
                 return;
@@ -148,21 +152,64 @@ namespace D.A.S.H.Pages
             AddAiMessage($"Deleted task: {taskToDelete.Title}", IntentType.Delete);
         }
 
-        private async System.Threading.Tasks.Task HandleReadAsync()
+        private async System.Threading.Tasks.Task HandleReadAsync(string input)
         {
             var tasks = await _taskRepository.GetAllAsync();
 
             if (!tasks.Any())
             {
                 AiResponse = "There are no tasks yet.";
-                AddAiMessage("There are no tasks yet.", IntentType.Create);
+                AddAiMessage("There are no tasks yet.", IntentType.Query);
                 return;
             }
 
-            var response = "Current tasks: " + string.Join(", ", tasks.Select(t => t.Title));
+            var searchText = input
+                .Replace("show me", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("show", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("view", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("display", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("see", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("list", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("read", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("details of", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("details for", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("details about", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("details", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("the task", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("task", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("all tasks", "", StringComparison.OrdinalIgnoreCase)
+                .Trim();
 
-            AiResponse = response;
-            AddAiMessage(response, IntentType.Create);
+            if (!string.IsNullOrWhiteSpace(searchText) && searchText.Length >= 2)
+            {
+                var matchedTask = tasks.FirstOrDefault(t =>
+                    t.Title.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+                    t.Description.Contains(searchText, StringComparison.OrdinalIgnoreCase)
+                );
+
+                if (matchedTask != null)
+                {
+                    var response = $"Task: {matchedTask.Title}\n" +
+                                   $"Description: {matchedTask.Description}\n" +
+                                   $"Date: {matchedTask.Date:dd/MM/yyyy}\n" +
+                                   $"Time: {matchedTask.Time:hh\\:mm}";
+
+                    if (!string.IsNullOrWhiteSpace(matchedTask.Location) && matchedTask.Location != "Not specified")
+                        response += $"\nLocation: {matchedTask.Location}";
+
+                    if (!string.IsNullOrWhiteSpace(matchedTask.People) && matchedTask.People != "Not specified")
+                        response += $"\nPeople: {matchedTask.People}";
+
+                    AiResponse = response;
+                    AddAiMessage(response, IntentType.Query);
+                    return;
+                }
+            }
+
+            var allTasks = "Current tasks: " + string.Join(", ", tasks.Select(t => t.Title));
+
+            AiResponse = allTasks;
+            AddAiMessage(allTasks, IntentType.Query);
         }
 
         private async System.Threading.Tasks.Task HandleUpdateAsync(string input)
