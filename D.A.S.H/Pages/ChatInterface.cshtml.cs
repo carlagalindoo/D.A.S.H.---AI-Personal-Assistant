@@ -49,7 +49,10 @@ namespace D.A.S.H.Pages
 
             bool isDeleteRequest =
                 lowerInput.StartsWith("delete") ||
-                lowerInput.StartsWith("remove");
+                lowerInput.StartsWith("remove") ||
+                lowerInput.StartsWith("erase") ||
+                lowerInput.StartsWith("cancel") ||
+                lowerInput.StartsWith("get rid of");
 
             if (isDeleteRequest)
             {
@@ -77,9 +80,12 @@ namespace D.A.S.H.Pages
             }
 
             bool isUpdateRequest =
-            lowerInput.StartsWith("update") ||
-            lowerInput.StartsWith("change") ||
-            lowerInput.StartsWith("edit");
+                lowerInput.StartsWith("update") ||
+                lowerInput.StartsWith("change") ||
+                lowerInput.StartsWith("edit") ||
+                lowerInput.StartsWith("modify") ||
+                lowerInput.StartsWith("rename") ||
+                lowerInput.StartsWith("reschedule");
 
             if (isUpdateRequest)
             {
@@ -119,8 +125,8 @@ namespace D.A.S.H.Pages
             }
             catch (Exception ex)
             {
-                AiResponse = $"AI failed: {ex.Message}";
-                AddAiMessage($"AI failed: {ex.Message}", IntentType.Create);
+                AiResponse = $"Something went wrong while creating your task. Please try again.";
+                AddAiMessage($"Something went wrong while creating your task. Please try again.", IntentType.Create);
             }
         }
 
@@ -134,17 +140,26 @@ namespace D.A.S.H.Pages
                 .Replace("task", "", StringComparison.OrdinalIgnoreCase)
                 .Trim();
 
-            var taskToDelete = tasks.FirstOrDefault(t =>
+            var matchingTasks = tasks.Where(t =>
                 t.Title.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
                 t.Description.Contains(searchText, StringComparison.OrdinalIgnoreCase)
-            );
+            ).ToList();
 
-            if (taskToDelete == null)
+            if (!matchingTasks.Any())
             {
                 AiResponse = "I could not find a matching task to delete.";
                 AddAiMessage("I could not find a matching task to delete.", IntentType.Delete);
                 return;
             }
+
+            if (matchingTasks.Count > 1)
+            {
+                var titles = string.Join(", ", matchingTasks.Select(t => $"'{t.Title}'"));
+                AddAiMessage($"I found multiple tasks matching '{searchText}': {titles}. Please be more specific.", IntentType.Delete);
+                return;
+            }
+
+            var taskToDelete = matchingTasks.First();
 
             await _taskRepository.DeleteAsync(taskToDelete.TaskId);
 
@@ -204,6 +219,9 @@ namespace D.A.S.H.Pages
                     AddAiMessage(response, IntentType.Query);
                     return;
                 }
+
+                AddAiMessage($"No task found matching '{searchText}'. Here are all your tasks: " + string.Join(", ", tasks.Select(t => t.Title)), IntentType.Query);
+                return;
             }
 
             var allTasks = "Current tasks: " + string.Join(", ", tasks.Select(t => t.Title));
@@ -230,16 +248,25 @@ namespace D.A.S.H.Pages
                 ? stripped.Split(" to ", StringSplitOptions.None)[0].Trim()
                 : stripped;
 
-            var taskToUpdate = tasks.FirstOrDefault(t =>
+            var matchingTasks = tasks.Where(t =>
                 t.Title.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
                 t.Description.Contains(searchText, StringComparison.OrdinalIgnoreCase)
-            );
+            ).ToList();
 
-            if (taskToUpdate == null)
+            if (!matchingTasks.Any())
             {
                 AddAiMessage($"I could not find a task matching '{searchText}'.", IntentType.Update);
                 return;
             }
+
+            if (matchingTasks.Count > 1)
+            {
+                var titles = string.Join(", ", matchingTasks.Select(t => $"'{t.Title}'"));
+                AddAiMessage($"I found multiple tasks matching '{searchText}': {titles}. Please be more specific.", IntentType.Update);
+                return;
+            }
+
+            var taskToUpdate = matchingTasks.First();
 
             // Send the FULL original input to the AI so it can extract the new values
             var facts = await _aiService.ExtractFactsAsync(input);
