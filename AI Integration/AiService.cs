@@ -87,9 +87,9 @@ namespace AI_Integration
                         PropertyNameCaseInsensitive = true
                     });
             }
-            catch
+            catch (Exception ex)
             {
-                return null;
+                throw new Exception($"AI service error: {ex.Message}");
             }
         }
     }

@@ -46,7 +46,12 @@ namespace D.A.S.H.Pages
 
             AddUserMessage(currentInput);
 
-            ExtractedFacts? facts = null;
+            bool isDeleteRequest =
+                lowerInput.StartsWith("delete") ||
+                lowerInput.StartsWith("remove") ||
+                lowerInput.StartsWith("erase") ||
+                lowerInput.StartsWith("cancel") ||
+                lowerInput.StartsWith("get rid of");
 
             try
             {
@@ -57,14 +62,33 @@ namespace D.A.S.H.Pages
                 facts = null;
             }
 
-            var action = facts?.Action?.ToLower();
+            bool isReadRequest =
+                lowerInput.Contains("show") ||
+                lowerInput.Contains("list") ||
+                lowerInput.Contains("read") ||
+                lowerInput.Contains("view") ||
+                lowerInput.Contains("display") ||
+                lowerInput.Contains("see");
 
             // 1. Ollama decides first
             if (action == "read")
             {
+                //await HandleReadAsync();
                 await HandleReadAsync(currentInput);
+                SaveChatMessages();
+                UserRequest = string.Empty;
+                return;
             }
-            else if (action == "update")
+
+            bool isUpdateRequest =
+                lowerInput.StartsWith("update") ||
+                lowerInput.StartsWith("change") ||
+                lowerInput.StartsWith("edit") ||
+                lowerInput.StartsWith("modify") ||
+                lowerInput.StartsWith("rename") ||
+                lowerInput.StartsWith("reschedule");
+
+            if (isUpdateRequest)
             {
                 await HandleUpdateAsync(currentInput);
             }
@@ -123,8 +147,8 @@ namespace D.A.S.H.Pages
             }
             catch (Exception ex)
             {
-                AiResponse = $"AI failed: {ex.Message}";
-                AddAiMessage($"AI failed: {ex.Message}", IntentType.Create);
+                AiResponse = $"Something went wrong while creating your task. Please try again.";
+                AddAiMessage($"Something went wrong while creating your task. Please try again.", IntentType.Create);
             }
         }
 
@@ -161,106 +185,31 @@ namespace D.A.S.H.Pages
                     .Trim();
             }
 
-            var taskToDelete = tasks.FirstOrDefault(t =>
+            var matchingTasks = tasks.Where(t =>
                 t.Title.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
-                t.Description.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
-                t.People.Contains(searchText, StringComparison.OrdinalIgnoreCase)
-            );
+                t.Description.Contains(searchText, StringComparison.OrdinalIgnoreCase)
+            ).ToList();
 
-            if (taskToDelete == null)
+            if (!matchingTasks.Any())
             {
                 AiResponse = "I could not find a matching task to delete.";
                 AddAiMessage("I could not find a matching task to delete.", IntentType.Delete);
                 return;
             }
 
+            if (matchingTasks.Count > 1)
+            {
+                var titles = string.Join(", ", matchingTasks.Select(t => $"'{t.Title}'"));
+                AddAiMessage($"I found multiple tasks matching '{searchText}': {titles}. Please be more specific.", IntentType.Delete);
+                return;
+            }
+
+            var taskToDelete = matchingTasks.First();
+
             await _taskRepository.DeleteAsync(taskToDelete.TaskId);
 
             AiResponse = $"Deleted task: {taskToDelete.Title}";
             AddAiMessage($"Deleted task: {taskToDelete.Title}", IntentType.Delete);
-        }
-
-        private async System.Threading.Tasks.Task HandleUpdateAsync(string input)
-        {
-            var facts = await _aiService.ExtractFactsAsync(input);
-            var tasks = await _taskRepository.GetAllAsync();
-
-            // Map facts?.TargetTask to facts?.What or rely on extraction
-            var targetTask = GetValueOrFallback(
-                facts?.What,
-                ExtractUpdateTarget(input)
-            );
-
-            // Since ExtractedFacts doesn't have dedicated 'new' properties, we rely on the manual extraction methods
-            var newTitle = GetValueOrFallback(null, ExtractUpdateNewValue(input));
-            var newWhen = GetValueOrFallback(facts?.When, newTitle); // Fallback to newTitle incase AI missed 'When'
-            var newWhere = GetValueOrFallback(facts?.Where, "");
-            var newWho = GetValueOrFallback(facts?.Who, "");
-
-            var taskToUpdate = tasks.FirstOrDefault(t =>
-                t.Title.Contains(targetTask, StringComparison.OrdinalIgnoreCase) ||
-                t.Description.Contains(targetTask, StringComparison.OrdinalIgnoreCase)
-            );
-
-            if (taskToUpdate == null)
-            {
-                AiResponse = "I could not find a matching task to update.";
-                AddAiMessage("I could not find a matching task to update.", IntentType.Create);
-                return;
-            }
-
-            // Only update Title if it doesn't strictly look like just a bare time or date adjustment
-            if (!string.IsNullOrWhiteSpace(newTitle))
-            {
-                bool isJustTimeOrDate = Regex.IsMatch(newTitle, @"^(\d{1,2})(?::(\d{2}))?\s*(am|pm)$", RegexOptions.IgnoreCase) || 
-                                        newTitle.Equals("tomorrow", StringComparison.OrdinalIgnoreCase) || 
-                                        newTitle.Equals("today", StringComparison.OrdinalIgnoreCase);
-
-                if (!isJustTimeOrDate)
-                {
-                    taskToUpdate.Title = ExtractTitle(newTitle);
-                    taskToUpdate.Description = input;
-                }
-            }
-
-            if (!string.IsNullOrWhiteSpace(newWhen))
-            {
-                // Only update the Date if we explicitly find a supported date expression
-                if (newWhen.Contains("tomorrow", StringComparison.OrdinalIgnoreCase) || newWhen.Contains("today", StringComparison.OrdinalIgnoreCase))
-                {
-                    taskToUpdate.Date = ParseDate(newWhen);
-                }
-
-                // Only update the Time if we explicitly find a supported time expression
-                if (Regex.IsMatch(newWhen, @"\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b", RegexOptions.IgnoreCase))
-                {
-                    taskToUpdate.Time = ParseTime(newWhen).TimeOfDay;
-                }
-            }
-
-            if (!string.IsNullOrWhiteSpace(newWhere))
-            {
-                taskToUpdate.Location = newWhere;
-            }
-
-            if (!string.IsNullOrWhiteSpace(newWho))
-            {
-                taskToUpdate.People = newWho;
-            }
-            else if (!string.IsNullOrWhiteSpace(newTitle))
-            {
-                // Extract people safely from newTitle if valid
-                var peopleCandidate = ExtractPeople(newTitle);
-                if (peopleCandidate != "Not specified")
-                {
-                    taskToUpdate.People = peopleCandidate;
-                }
-            }
-
-            await _taskRepository.UpdateAsync(taskToUpdate);
-
-            AiResponse = $"Updated task: {taskToUpdate.Title}";
-            AddAiMessage($"Updated task: {taskToUpdate.Title}", IntentType.Create);
         }
 
         private async System.Threading.Tasks.Task HandleReadAsync(string input)
@@ -270,40 +219,161 @@ namespace D.A.S.H.Pages
             if (!tasks.Any())
             {
                 AiResponse = "There are no tasks yet.";
-                AddAiMessage("There are no tasks yet.", IntentType.Create);
+                AddAiMessage("There are no tasks yet.", IntentType.Query);
                 return;
             }
 
-            var searchText = "";
+            var searchText = input
+                .Replace("show me", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("show", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("view", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("display", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("see", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("list", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("read", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("details of", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("details for", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("details about", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("details", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("the task", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("task", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("all tasks", "", StringComparison.OrdinalIgnoreCase)
+                .Trim();
 
-            if (input.ToLower().Contains("with "))
+            if (!string.IsNullOrWhiteSpace(searchText) && searchText.Length >= 2)
             {
-                searchText = input.Split("with").Last().Trim().Replace("?", "");
-            }
+                var matchedTask = tasks.FirstOrDefault(t =>
+                    t.Title.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+                    t.Description.Contains(searchText, StringComparison.OrdinalIgnoreCase)
+                );
 
-            if (!string.IsNullOrWhiteSpace(searchText))
-            {
-                tasks = tasks
-                    .Where(t =>
-                        t.Title.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
-                        t.Description.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
-                        t.People.Contains(searchText, StringComparison.OrdinalIgnoreCase))
-                    .ToList();
-            }
+                if (matchedTask != null)
+                {
+                    var response = $"Task: {matchedTask.Title}\n" +
+                                   $"Description: {matchedTask.Description}\n" +
+                                   $"Date: {matchedTask.Date:dd/MM/yyyy}\n" +
+                                   $"Time: {matchedTask.Time:hh\\:mm}";
 
-            if (!tasks.Any())
-            {
-                AiResponse = "I could not find matching tasks.";
-                AddAiMessage("I could not find matching tasks.", IntentType.Create);
+                    if (!string.IsNullOrWhiteSpace(matchedTask.Location) && matchedTask.Location != "Not specified")
+                        response += $"\nLocation: {matchedTask.Location}";
+
+                    if (!string.IsNullOrWhiteSpace(matchedTask.People) && matchedTask.People != "Not specified")
+                        response += $"\nPeople: {matchedTask.People}";
+
+                    AiResponse = response;
+                    AddAiMessage(response, IntentType.Query);
+                    return;
+                }
+
+                AddAiMessage($"No task found matching '{searchText}'. Here are all your tasks: " + string.Join(", ", tasks.Select(t => t.Title)), IntentType.Query);
                 return;
             }
 
-            var response = string.IsNullOrWhiteSpace(searchText)
-                ? "Current tasks: " + string.Join(", ", tasks.Select(t => t.Title))
-                : $"Tasks with {searchText}: " + string.Join(", ", tasks.Select(t => t.Title));
+            var allTasks = "Current tasks: " + string.Join(", ", tasks.Select(t => t.Title));
 
-            AiResponse = response;
-            AddAiMessage(response, IntentType.Create);
+            AiResponse = allTasks;
+            AddAiMessage(allTasks, IntentType.Query);
+        }
+
+        private async System.Threading.Tasks.Task HandleUpdateAsync(string input)
+        {
+            var tasks = await _taskRepository.GetAllAsync();
+
+            // Strip the command word, then try to split "old value" from "new value"
+            // e.g. "update meeting with John to tomorrow at 4pm"
+            var stripped = input
+                .Replace("update", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("change", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("edit", "", StringComparison.OrdinalIgnoreCase)
+                .Trim();
+
+            // Try to find the task by matching the first part of the input
+            // Split on " to " so "meeting to tomorrow at 4pm" → search for "meeting"
+            string searchText = stripped.Contains(" to ", StringComparison.OrdinalIgnoreCase)
+                ? stripped.Split(" to ", StringSplitOptions.None)[0].Trim()
+                : stripped;
+
+            var matchingTasks = tasks.Where(t =>
+                t.Title.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
+                t.Description.Contains(searchText, StringComparison.OrdinalIgnoreCase)
+            ).ToList();
+
+            if (!matchingTasks.Any())
+            {
+                AddAiMessage($"I could not find a task matching '{searchText}'.", IntentType.Update);
+                return;
+            }
+
+            if (matchingTasks.Count > 1)
+            {
+                var titles = string.Join(", ", matchingTasks.Select(t => $"'{t.Title}'"));
+                AddAiMessage($"I found multiple tasks matching '{searchText}': {titles}. Please be more specific.", IntentType.Update);
+                return;
+            }
+
+            var taskToUpdate = matchingTasks.First();
+
+            // Send the FULL original input to the AI so it can extract the new values
+            var facts = await _aiService.ExtractFactsAsync(input);
+
+            bool updated = false;
+
+            if (!string.IsNullOrWhiteSpace(facts?.What) &&
+                facts.What != "*" &&
+                facts.What.ToLower() != "not specified")
+            {
+                taskToUpdate.Title = facts.What;
+                updated = true;
+            }
+
+            if (!string.IsNullOrWhiteSpace(facts?.When) &&
+                facts.When != "*" &&
+                facts.When.ToLower() != "not specified")
+            {
+                taskToUpdate.Date = ParseDate(facts.When);
+                taskToUpdate.Time = ParseTime(facts.When);
+                updated = true;
+            }
+
+            if (!string.IsNullOrWhiteSpace(facts?.Where) &&
+                facts.Where != "*" &&
+                facts.Where.ToLower() != "not specified")
+            {
+                taskToUpdate.Location = facts.Where;
+                updated = true;
+            }
+
+            if (!string.IsNullOrWhiteSpace(facts?.Who) &&
+                facts.Who != "*" &&
+                facts.Who.ToLower() != "not specified")
+            {
+                taskToUpdate.People = facts.Who;
+                updated = true;
+            }
+
+            if (!updated)
+            {
+                AddAiMessage($"I found '{taskToUpdate.Title}' but couldn't understand what to change. Try something like: 'update meeting to tomorrow at 4pm'.", IntentType.Update);
+                return;
+            }
+
+            await _taskRepository.UpdateAsync(taskToUpdate);
+
+            var summary = new List<string>();
+
+            if (!string.IsNullOrWhiteSpace(facts?.What) && facts.What != "*" && facts.What.ToLower() != "not specified")
+                summary.Add($"title to '{taskToUpdate.Title}'");
+
+            if (!string.IsNullOrWhiteSpace(facts?.When) && facts.When != "*" && facts.When.ToLower() != "not specified")
+                summary.Add($"time to {taskToUpdate.Time:hh\\:mm} on {taskToUpdate.Date:dd/MM/yyyy}");
+
+            if (!string.IsNullOrWhiteSpace(facts?.Where) && facts.Where != "*" && facts.Where.ToLower() != "not specified")
+                summary.Add($"location to '{taskToUpdate.Location}'");
+
+            if (!string.IsNullOrWhiteSpace(facts?.Who) && facts.Who != "*" && facts.Who.ToLower() != "not specified")
+                summary.Add($"people to '{taskToUpdate.People}'");
+
+            AddAiMessage($"Updated '{taskToUpdate.Title}': changed {string.Join(", ", summary)}.", IntentType.Update);
         }
 
         private string GetValueOrFallback(string? aiValue, string fallback)
