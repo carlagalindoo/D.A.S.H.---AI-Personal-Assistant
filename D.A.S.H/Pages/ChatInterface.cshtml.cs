@@ -78,7 +78,7 @@ namespace D.A.S.H.Pages
             // 1. Ollama decides first
             if (action == "read")
             {
-                await HandleReadAsync(currentInput);
+                await HandleReadAsync(currentInput, facts);
                 SaveChatMessages();
                 UserRequest = string.Empty;
                 return;
@@ -111,7 +111,7 @@ namespace D.A.S.H.Pages
             }
             else if (LooksLikeReadRequest(currentInput))
             {
-                await HandleReadAsync(currentInput);
+                await HandleReadAsync(currentInput, facts);
             }
             else if (LooksLikeDeleteRequest(currentInput) || isDeleteRequest)
             {
@@ -215,7 +215,7 @@ namespace D.A.S.H.Pages
             AddAiMessage($"Deleted task: {taskToDelete.Title}", IntentType.Delete);
         }
 
-        private async System.Threading.Tasks.Task HandleReadAsync(string input)
+        private async System.Threading.Tasks.Task HandleReadAsync(string input, ExtractedFacts? facts)
         {
             var tasks = await _taskRepository.GetAllAsync();
 
@@ -226,54 +226,111 @@ namespace D.A.S.H.Pages
                 return;
             }
 
-            var searchText = input
-                .Replace("show me", "", StringComparison.OrdinalIgnoreCase)
-                .Replace("show", "", StringComparison.OrdinalIgnoreCase)
-                .Replace("view", "", StringComparison.OrdinalIgnoreCase)
-                .Replace("display", "", StringComparison.OrdinalIgnoreCase)
-                .Replace("see", "", StringComparison.OrdinalIgnoreCase)
-                .Replace("list", "", StringComparison.OrdinalIgnoreCase)
-                .Replace("read", "", StringComparison.OrdinalIgnoreCase)
-                .Replace("details of", "", StringComparison.OrdinalIgnoreCase)
-                .Replace("details for", "", StringComparison.OrdinalIgnoreCase)
-                .Replace("details about", "", StringComparison.OrdinalIgnoreCase)
-                .Replace("details", "", StringComparison.OrdinalIgnoreCase)
-                .Replace("the task", "", StringComparison.OrdinalIgnoreCase)
-                .Replace("task", "", StringComparison.OrdinalIgnoreCase)
-                .Replace("all tasks", "", StringComparison.OrdinalIgnoreCase)
-                .Trim();
+            var filteredTasks = tasks.AsEnumerable();
+            bool hasFilters = false;
 
-            if (!string.IsNullOrWhiteSpace(searchText) && searchText.Length >= 2)
+            // 1. Identify filters extracted by the AI
+            if (facts != null)
             {
-                var matchedTask = tasks.FirstOrDefault(t =>
-                    t.Title.Contains(searchText, StringComparison.OrdinalIgnoreCase) ||
-                    t.Description.Contains(searchText, StringComparison.OrdinalIgnoreCase)
-                );
-
-                if (matchedTask != null)
+                if (!string.IsNullOrWhiteSpace(facts.Who) && facts.Who != "*" && facts.Who.ToLower() != "not specified")
                 {
-                    var response = $"Task: {matchedTask.Title}\n" +
-                                   $"Description: {matchedTask.Description}\n" +
-                                   $"Date: {matchedTask.Date:dd/MM/yyyy}\n" +
-                                   $"Time: {matchedTask.Time:hh\\:mm}";
-
-                    if (!string.IsNullOrWhiteSpace(matchedTask.Location) && matchedTask.Location != "Not specified")
-                        response += $"\nLocation: {matchedTask.Location}";
-
-                    if (!string.IsNullOrWhiteSpace(matchedTask.People) && matchedTask.People != "Not specified")
-                        response += $"\nPeople: {matchedTask.People}";
-
-                    AiResponse = response;
-                    AddAiMessage(response, IntentType.Query);
-                    return;
+                    filteredTasks = filteredTasks.Where(t => t.People != null && t.People.Contains(facts.Who, StringComparison.OrdinalIgnoreCase));
+                    hasFilters = true;
                 }
 
-                AddAiMessage($"No task found matching '{searchText}'. Here are all your tasks: " + string.Join(", ", tasks.Select(t => t.Title)), IntentType.Query);
+                if (!string.IsNullOrWhiteSpace(facts.Where) && facts.Where != "*" && facts.Where.ToLower() != "not specified")
+                {
+                    filteredTasks = filteredTasks.Where(t => t.Location != null && t.Location.Contains(facts.Where, StringComparison.OrdinalIgnoreCase));
+                    hasFilters = true;
+                }
+
+                if (!string.IsNullOrWhiteSpace(facts.What) && facts.What != "*" && facts.What.ToLower() != "not specified")
+                {
+                    // Ignore overly generic terms the AI sometimes hallucinates like just "task" or "tasks"
+                    if (facts.What.ToLower() != "task" && facts.What.ToLower() != "tasks")
+                    {
+                        filteredTasks = filteredTasks.Where(t =>
+                            (t.Title != null && t.Title.Contains(facts.What, StringComparison.OrdinalIgnoreCase)) ||
+                            (t.Description != null && t.Description.Contains(facts.What, StringComparison.OrdinalIgnoreCase)));
+                        hasFilters = true;
+                    }
+                }
+            }
+
+            // 2. Safeguard: Directly parse from user input to never miss explicit date/time criteria
+            if (input.Contains("today", StringComparison.OrdinalIgnoreCase) || input.Contains("tomorrow", StringComparison.OrdinalIgnoreCase))
+            {
+                var parsedDate = ParseDate(input);
+                filteredTasks = filteredTasks.Where(t => t.Date.Date == parsedDate.Date);
+                hasFilters = true;
+            }
+
+            var timeMatch = Regex.Match(input, @"\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b", RegexOptions.IgnoreCase);
+            if (timeMatch.Success)
+            {
+                var parsedTime = ParseTime(input).TimeOfDay;
+                filteredTasks = filteredTasks.Where(t => t.Time == parsedTime);
+                hasFilters = true;
+            }
+
+            var matchingTasks = hasFilters ? filteredTasks.ToList() : new List<Domain.Models.Task>();
+
+            // 3. Fallback text query parsing ONLY if absolutely no filters were found to prevent accidental query mismatches
+            if (!hasFilters)
+            {
+                var searchText = input
+                    .Replace("show me", "", StringComparison.OrdinalIgnoreCase)
+                    .Replace("show", "", StringComparison.OrdinalIgnoreCase)
+                    .Replace("view", "", StringComparison.OrdinalIgnoreCase)
+                    .Replace("display", "", StringComparison.OrdinalIgnoreCase)
+                    .Replace("see", "", StringComparison.OrdinalIgnoreCase)
+                    .Replace("list", "", StringComparison.OrdinalIgnoreCase)
+                    .Replace("read", "", StringComparison.OrdinalIgnoreCase)
+                    .Replace("details of", "", StringComparison.OrdinalIgnoreCase)
+                    .Replace("details for", "", StringComparison.OrdinalIgnoreCase)
+                    .Replace("details about", "", StringComparison.OrdinalIgnoreCase)
+                    .Replace("details", "", StringComparison.OrdinalIgnoreCase)
+                    .Replace("all the tasks", "", StringComparison.OrdinalIgnoreCase)
+                    .Replace("all tasks", "", StringComparison.OrdinalIgnoreCase)
+                    .Replace("the task", "", StringComparison.OrdinalIgnoreCase)
+                    .Replace("tasks", "", StringComparison.OrdinalIgnoreCase)
+                    .Replace("task", "", StringComparison.OrdinalIgnoreCase)
+                    .Trim();
+
+                if (!string.IsNullOrWhiteSpace(searchText) && searchText.Length >= 2)
+                {
+                    matchingTasks = tasks.Where(t =>
+                        (t.Title != null && t.Title.Contains(searchText, StringComparison.OrdinalIgnoreCase)) ||
+                        (t.Description != null && t.Description.Contains(searchText, StringComparison.OrdinalIgnoreCase))
+                    ).ToList();
+
+                    if (matchingTasks.Any())
+                    {
+                        hasFilters = true;
+                    }
+                }
+            }
+
+            // 4. Returning matched results safely - Now only showing the Task Title
+            if (matchingTasks.Any())
+            {
+                var response = "Here are the tasks I found:\n" + string.Join("\n", matchingTasks.Select(t => $"- {t.Title}"));
+
+                AiResponse = response;
+                AddAiMessage(response, IntentType.Query);
+                return;
+            }
+
+            if (hasFilters)
+            {
+                // This branch prevents throwing "all tasks" at the user when their filter simply returned 0 results. 
+                var failureMsg = "No tasks found matching your criteria.";
+                AiResponse = failureMsg;
+                AddAiMessage(failureMsg, IntentType.Query);
                 return;
             }
 
             var allTasks = "Current tasks: " + string.Join(", ", tasks.Select(t => t.Title));
-
             AiResponse = allTasks;
             AddAiMessage(allTasks, IntentType.Query);
         }
