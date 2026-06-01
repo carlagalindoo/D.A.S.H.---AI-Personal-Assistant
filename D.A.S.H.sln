@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio Version 17
-VisualStudioVersion = 17.14.36915.13 d17.14
+# Visual Studio Version 18
+VisualStudioVersion = 18.6.11819.183 stable
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "D.A.S.H", "D.A.S.H\D.A.S.H.csproj", "{BE033981-5786-48DA-A244-BDEF8A2F59CE}"
 EndProject
@@ -14,6 +14,8 @@ EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AI Integration", "AI Integration\AI Integration.csproj", "{E3EB86CA-6745-47D0-B3A9-9B02DBC29E21}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DASHTest.UIModels", "TestProject1\DASHTest.UIModels.csproj", "{6E291DF1-4C9E-4524-9F98-F6F607D49EAD}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DASHTests2", "DASHTests2\DASHTests2.csproj", "{2A130C85-6AD3-4439-9B5A-66AF30D6DA44}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -45,6 +47,10 @@ Global
 		{6E291DF1-4C9E-4524-9F98-F6F607D49EAD}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{6E291DF1-4C9E-4524-9F98-F6F607D49EAD}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{6E291DF1-4C9E-4524-9F98-F6F607D49EAD}.Release|Any CPU.Build.0 = Release|Any CPU
+		{2A130C85-6AD3-4439-9B5A-66AF30D6DA44}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{2A130C85-6AD3-4439-9B5A-66AF30D6DA44}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{2A130C85-6AD3-4439-9B5A-66AF30D6DA44}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{2A130C85-6AD3-4439-9B5A-66AF30D6DA44}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
