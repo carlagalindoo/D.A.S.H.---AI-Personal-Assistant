@@ -43,6 +43,7 @@ namespace D.A.S.H.Pages
             }
 
             var currentInput = UserRequest.Trim();
+            var lowerInput = currentInput.ToLower(); // FIX: Added missing lowerInput variable
 
             AddUserMessage(currentInput);
 
@@ -53,6 +54,8 @@ namespace D.A.S.H.Pages
                 lowerInput.StartsWith("cancel") ||
                 lowerInput.StartsWith("get rid of");
 
+            ExtractedFacts? facts = null; // FIX: Ensure facts is strongly typed and available
+
             try
             {
                 facts = await _aiService.ExtractFactsAsync(currentInput);
@@ -61,6 +64,8 @@ namespace D.A.S.H.Pages
             {
                 facts = null;
             }
+
+            string? action = facts?.Action?.ToLower(); // FIX: Added mapping for action variable
 
             bool isReadRequest =
                 lowerInput.Contains("show") ||
@@ -73,7 +78,6 @@ namespace D.A.S.H.Pages
             // 1. Ollama decides first
             if (action == "read")
             {
-                //await HandleReadAsync();
                 await HandleReadAsync(currentInput);
                 SaveChatMessages();
                 UserRequest = string.Empty;
@@ -88,7 +92,7 @@ namespace D.A.S.H.Pages
                 lowerInput.StartsWith("rename") ||
                 lowerInput.StartsWith("reschedule");
 
-            if (isUpdateRequest)
+            if (isUpdateRequest || action == "update") // FIX: Also check fallback action
             {
                 await HandleUpdateAsync(currentInput);
             }
@@ -100,7 +104,6 @@ namespace D.A.S.H.Pages
             {
                 await HandleCreateAsync(currentInput);
             }
-
             // 2. Fallback only if Ollama action is unclear
             else if (LooksLikeUpdateRequest(currentInput))
             {
@@ -110,7 +113,7 @@ namespace D.A.S.H.Pages
             {
                 await HandleReadAsync(currentInput);
             }
-            else if (LooksLikeDeleteRequest(currentInput))
+            else if (LooksLikeDeleteRequest(currentInput) || isDeleteRequest)
             {
                 await HandleDeleteAsync(currentInput);
             }
@@ -331,7 +334,7 @@ namespace D.A.S.H.Pages
                 facts.When.ToLower() != "not specified")
             {
                 taskToUpdate.Date = ParseDate(facts.When);
-                taskToUpdate.Time = ParseTime(facts.When);
+                taskToUpdate.Time = ParseTime(facts.When).TimeOfDay;
                 updated = true;
             }
 
