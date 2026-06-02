@@ -141,7 +141,7 @@ namespace D.A.S.H.Pages
                     Time = ParseTime(GetValueOrFallback(facts?.When, input)).TimeOfDay, // <-- FIXED LINE
                     Location = ExtractCleanLocation(facts?.Where, input),
                     //Location = GetValueOrFallback(facts?.Where, ExtractLocation(input)),
-                    People = GetValueOrFallback(facts?.Who, ExtractPeople(input)),
+                    People = CleanPeople(GetValueOrFallback(facts?.Who, ExtractPeople(input))),
                     SessionKey = "1"
                 };
 
