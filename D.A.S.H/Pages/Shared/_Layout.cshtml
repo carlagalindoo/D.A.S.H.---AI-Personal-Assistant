@@ -7,51 +7,52 @@
     <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
     <link rel="stylesheet" href="~/D.A.S.H.styles.css" asp-append-version="true" />
+    <link rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
 </head>
 <body>
-    <header>
-        <nav class="navbar navbar-expand-sm navbar-toggleable-sm navbar-light bg-white border-bottom box-shadow mb-3">
-            <div class="container">
-                <a class="navbar-brand" asp-area="" asp-page="/Index">D.A.S.H</a>
-                <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target=".navbar-collapse" aria-controls="navbarSupportedContent"
-                        aria-expanded="false" aria-label="Toggle navigation">
-                    <span class="navbar-toggler-icon"></span>
-                </button>
-                <div class="navbar-collapse collapse d-sm-inline-flex justify-content-between">
-                    <ul class="navbar-nav flex-grow-1">
-                        <li class="nav-item">
-                            <a class="nav-link text-dark" asp-area="" asp-page="/Index">Home</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link text-dark" asp-area="" asp-page="/Privacy">Privacy</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class=" nav-link text-dark" asp-area="" asp-page="/ChatInterface">Chat Interface</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link text-dark" asp-area="" asp-page="/Tasks/Index">Tasks</a>
-                        </li>
-                    </ul>
+        <div class="app-layout">
+
+            <aside class="sidebar">
+                <div class="sidebar-logo">
+                    D.A.S.H
                 </div>
-            </div>
-        </nav>
-    </header>
-    <div class="container">
-        <main role="main" class="pb-3">
-            @RenderBody()
-        </main>
-    </div>
 
-    <footer class="border-top footer text-muted">
-        <div class="container">
-            &copy; 2026 - D.A.S.H - <a asp-area="" asp-page="/Privacy">Privacy</a>
+            <nav class="sidebar-nav">
+
+                <a class="sidebar-link @(Context.Request.Path == "/" ? "active" : "")"
+                   asp-page="/Index">
+                    🏠 Home
+                </a>
+
+                <a class="sidebar-link @(Context.Request.Path == "/ChatInterface" ? "active" : "")"
+                   asp-page="/ChatInterface">
+                    💬 Chat
+                </a>
+
+                <a class="sidebar-link @(Context.Request.Path.StartsWithSegments("/Tasks") ? "active" : "")"
+                   asp-page="/Tasks/Index">
+                    📋 Tasks
+                </a>
+
+                <a class="sidebar-link @(Context.Request.Path == "/Privacy" ? "active" : "")"
+                   asp-page="/Privacy">
+                    🔒 Privacy
+                </a>
+
+            </nav>
+            </aside>
+
+            <main class="main-content">
+                @RenderBody()
+            </main>
+
         </div>
-    </footer>
 
-    <script src="~/lib/jquery/dist/jquery.min.js"></script>
-    <script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="~/js/site.js" asp-append-version="true"></script>
+        <script src="~/lib/jquery/dist/jquery.min.js"></script>
+        <script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
+        <script src="~/js/site.js" asp-append-version="true"></script>
 
-    @await RenderSectionAsync("Scripts", required: false)
+        @await RenderSectionAsync("Scripts", required: false)
 </body>
 </html>
