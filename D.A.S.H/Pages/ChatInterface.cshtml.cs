@@ -134,12 +134,13 @@ namespace D.A.S.H.Pages
 
                 var task = new Domain.Models.Task
                 {
-                    Title = GetValueOrFallback(facts?.What, ExtractTitle(input)),
+                    // Clean both AI-provided and regex-extracted values to be absolutely safe
+                    Title = ExtractTitle(GetValueOrFallback(facts?.What, ExtractTitle(input))),
                     Description = input,
                     Date = ParseDate(GetValueOrFallback(facts?.When, input)),
-                    Time = ParseTime(GetValueOrFallback(facts?.When, input)).TimeOfDay, // <-- FIXED LINE
-                    Location = GetValueOrFallback(facts?.Where, ExtractLocation(input)),
-                    People = GetValueOrFallback(facts?.Who, ExtractPeople(input)),
+                    Time = ParseTime(GetValueOrFallback(facts?.When, input)).TimeOfDay,
+                    Location = CleanLocation(GetValueOrFallback(facts?.Where, ExtractLocation(input))),
+                    People = CleanPeople(GetValueOrFallback(facts?.Who, ExtractPeople(input))),
                     SessionKey = "1"
                 };
 
@@ -669,6 +670,11 @@ namespace D.A.S.H.Pages
 
             person = person.Trim();
 
+            // If the AI accidentally isolated JUST a time word as the person
+            if (person.Equals("tomorrow", StringComparison.OrdinalIgnoreCase) || 
+                person.Equals("today", StringComparison.OrdinalIgnoreCase))
+                return "Not specified";
+
             // Stop reading the person's name once we hit time/location related words
             string[] stoppers = { " at ", " in ", " on ", " tomorrow", " today", " tonight" };
 
@@ -677,7 +683,7 @@ namespace D.A.S.H.Pages
             foreach (var stopper in stoppers)
             {
                 int index = person.IndexOf(stopper, StringComparison.OrdinalIgnoreCase);
-                if (index >= 0 && index < earliestIndex)
+                if (index > 0 && index < earliestIndex) // Must be > 0 to not wipe out the entire string if it starts with the word
                 {
                     earliestIndex = index;
                 }
