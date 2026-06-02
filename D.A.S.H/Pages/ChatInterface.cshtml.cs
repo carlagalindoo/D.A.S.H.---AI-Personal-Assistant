@@ -521,22 +521,134 @@ namespace D.A.S.H.Pages
             HttpContext.Session.SetString("ChatMessages", JsonSerializer.Serialize(ChatMessages));
         }
 
+        // THIS IS NEW RULES FOR DATE
         private DateTime ParseDate(string? input)
         {
             if (string.IsNullOrWhiteSpace(input))
                 return DateTime.Today;
 
-            input = input.ToLower();
+            input = input.ToLower().Trim();
 
+            // today / tomorrow
             if (input.Contains("tomorrow"))
                 return DateTime.Today.AddDays(1);
-
             if (input.Contains("today"))
                 return DateTime.Today;
 
+            //  weeks / months"
+            var relativeMatch = Regex.Match(input,
+                @"\bin\s+(\d+)\s+(day|days|week|weeks|month|months)\b");
+            if (relativeMatch.Success)
+            {
+                int amount = int.Parse(relativeMatch.Groups[1].Value);
+                string unit = relativeMatch.Groups[2].Value;
+                if (unit.StartsWith("month")) return DateTime.Today.AddMonths(amount);
+                if (unit.StartsWith("week")) return DateTime.Today.AddDays(amount * 7);
+                return DateTime.Today.AddDays(amount);
+            }
+
+            //  "next Monday" or bare day name like "on Friday"
+            var dayNames = new Dictionary<string, DayOfWeek>(StringComparer.OrdinalIgnoreCase)
+    {
+        { "monday",    DayOfWeek.Monday },
+        { "tuesday",   DayOfWeek.Tuesday },
+        { "wednesday", DayOfWeek.Wednesday },
+        { "thursday",  DayOfWeek.Thursday },
+        { "friday",    DayOfWeek.Friday },
+        { "saturday",  DayOfWeek.Saturday },
+        { "sunday",    DayOfWeek.Sunday }
+    };
+
+            foreach (var (name, dow) in dayNames)
+            {
+                if (Regex.IsMatch(input, $@"\b{name}\b"))
+                {
+                    int daysUntil = ((int)dow - (int)DateTime.Today.DayOfWeek + 7) % 7;
+                    if (daysUntil == 0) daysUntil = 7; // always next occurrence
+                    return DateTime.Today.AddDays(daysUntil);
+                }
+            }
+
+            // Numeric date: 8.6 / 8/6 / 8-6  (day.month, assuming current or next year)
+            var numericMatch = Regex.Match(input, @"\b(\d{1,2})[./\-](\d{1,2})\b");
+            if (numericMatch.Success)
+            {
+                int day = int.Parse(numericMatch.Groups[1].Value);
+                int month = int.Parse(numericMatch.Groups[2].Value);
+                try
+                {
+                    var candidate = new DateTime(DateTime.Today.Year, month, day);
+                    if (candidate < DateTime.Today)
+                        candidate = candidate.AddYears(1); // already passed this year
+                    return candidate;
+                }
+                catch { /* invalid day/month combo — fall through */ }
+            }
+
+            // Written month name: "June 15" or "15 June"
+            var monthNames = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+    {
+        { "january",1 },{ "february",2 },{ "march",3 },{ "april",4 },
+        { "may",5 },{ "june",6 },{ "july",7 },{ "august",8 },
+        { "september",9 },{ "october",10 },{ "november",11 },{ "december",12 }
+    };
+
+            var monthMatch = Regex.Match(input,
+                @"\b(\d{1,2})\s*(january|february|march|april|may|june|july|august|september|october|november|december)\b|\b(january|february|march|april|may|june|july|august|september|october|november|december)\s*(\d{1,2})\b",
+                RegexOptions.IgnoreCase);
+
+            if (monthMatch.Success)
+            {
+                string monthStr = monthMatch.Groups[2].Value.Length > 0
+                    ? monthMatch.Groups[2].Value
+                    : monthMatch.Groups[3].Value;
+                string dayStr = monthMatch.Groups[1].Value.Length > 0
+                    ? monthMatch.Groups[1].Value
+                    : monthMatch.Groups[4].Value;
+
+                if (int.TryParse(dayStr, out int d) && monthNames.TryGetValue(monthStr, out int m))
+                {
+                    try
+                    {
+                        var candidate = new DateTime(DateTime.Today.Year, m, d);
+                        if (candidate < DateTime.Today)
+                            candidate = candidate.AddYears(1);
+                        return candidate;
+                    }
+                    catch { /* invalid date — fall through */ }
+                }
+            }
+            // 4c. Ordinal month name: "July 6th" / "6th of July"
+            var ordinalMatch = Regex.Match(input,
+                @"\b(\d{1,2})(?:st|nd|rd|th)?\s+(january|february|march|april|may|june|july|august|september|october|november|december)\b|\b(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})(?:st|nd|rd|th)?\b",
+                RegexOptions.IgnoreCase);
+
+            if (ordinalMatch.Success)
+            {
+                string monthStr = ordinalMatch.Groups[2].Value.Length > 0
+                    ? ordinalMatch.Groups[2].Value
+                    : ordinalMatch.Groups[3].Value;
+                string dayStr = ordinalMatch.Groups[1].Value.Length > 0
+                    ? ordinalMatch.Groups[1].Value
+                    : ordinalMatch.Groups[4].Value;
+
+                if (int.TryParse(dayStr, out int d) && monthNames.TryGetValue(monthStr, out int m))
+                {
+                    try
+                    {
+                        var candidate = new DateTime(DateTime.Today.Year, m, d);
+                        if (candidate < DateTime.Today)
+                            candidate = candidate.AddYears(1);
+                        return candidate;
+                    }
+                    catch { }
+                }
+            }
+
+            // Fallback
             return DateTime.Today;
         }
-
+        // THIS IS THE END OF DATE RULES
         private DateTime ParseTime(string? input)
         {
             if (string.IsNullOrWhiteSpace(input))
