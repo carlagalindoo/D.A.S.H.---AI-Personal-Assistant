@@ -13,7 +13,7 @@ namespace AI_Integration
         public AiService(IConfiguration configuration)
         {
             var baseUrl = configuration["AI:BaseUrl"] ?? "http://localhost:11434/";
-            _model = configuration["AI:Model"] ?? "tinyllama";
+            _model = configuration["AI:Model"] ?? "qwen3:8b";
 
             _client = new HttpClient
             {
@@ -33,9 +33,12 @@ namespace AI_Integration
                     {
                         role = "system",
                         content = "Return ONLY valid JSON in this exact format, nothing else: " +
-                                  "{\"Action\":\"\",\"Who\":\"\",\"What\":\"\",\"Where\":\"\",\"When\":\"\"}. " +
-                                  "Action must be exactly one of: Create, Read, Update, Delete. " +
-                                  "If a field is unknown, use an empty string. No explanation. No markdown. No extra text."
+          "{\"Action\":\"\",\"Who\":\"\",\"What\":\"\",\"Where\":\"\",\"When\":\"\"}. " +
+          "Action must be exactly one of: Create, Read, Update, Delete. " +
+          "When must be written as one of: 'today', 'tomorrow', 'in N days', 'in N weeks', 'in N months', " +
+          "'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday', " +
+          "or a date like 'DD.MM' (e.g. 8.6 for June 8th). " +
+          "If a field is unknown, use an empty string. No explanation. No markdown. No extra text."
                     },
                     new
                     {
