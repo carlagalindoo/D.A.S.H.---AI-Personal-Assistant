@@ -13,7 +13,7 @@ namespace AI_Integration
         public AiService(IConfiguration configuration)
         {
             var baseUrl = configuration["AI:BaseUrl"] ?? "http://localhost:11434/";
-            _model = configuration["AI:Model"] ?? "qwen3:8b";
+            _model = configuration["AI:Model"] ?? "phi3:mini";
 
             _client = new HttpClient
             {

@@ -8,14 +8,15 @@
 <div class="container mt-4">
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h2>Tasks</h2>
-        <a asp-page="/Tasks/Create" class="btn btn-primary">Add Task</a>
+        <a asp-page="/Tasks/Create" class="btn btn-add-task">
+            Add Task
+        </a>
     </div>
 
     <table class="table table-bordered table-striped">
         <thead>
             <tr>
-                <th>Task ID</th>
-                <th>User ID</th>
+                <th>ID</th>
                 <th>Title</th>
                 <th>Description</th>
                 <th>Date</th>
@@ -32,7 +33,6 @@
                 {
                     <tr>
                         <td>@task.TaskId</td>
-                        <td>@task.SessionKey</td>
                         <td>@task.Title</td>
                         <td>@task.Description</td>
                         <td>@task.Date.ToString("dd/MM/yyyy")</td>
@@ -40,8 +40,8 @@
                         <td>@task.Location</td>
                         <td>@task.People</td>
                         <td>
-                            <a asp-page="/Tasks/Edit" asp-route-id="@task.TaskId" class="btn btn-sm btn-warning">Edit</a>
-                            <a asp-page="/Tasks/Delete" asp-route-id="@task.TaskId" class="btn btn-sm btn-danger">Delete</a>
+                            <a asp-page="/Tasks/Edit" asp-route-id="@task.TaskId" class="btn btn-sm btn-edit-task">Edit</a>
+                            <a asp-page="/Tasks/Delete" asp-route-id="@task.TaskId" class="btn btn-sm btn-delete-task">Delete</a>
                         </td>
                     </tr>
                 }
@@ -49,7 +49,7 @@
             else
             {
                 <tr>
-                    <td colspan="9" class="text-center">No tasks found.</td>
+                    <td colspan="8" class="text-center">No tasks found.</td>
                 </tr>
             }
         </tbody>
