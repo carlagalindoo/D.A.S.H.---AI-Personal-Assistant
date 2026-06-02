@@ -1,22 +1,135 @@
 html {
-  font-size: 14px;
+    font-size: 14px;
 }
 
 @media (min-width: 768px) {
-  html {
-    font-size: 16px;
-  }
+    html {
+        font-size: 16px;
+    }
 }
 
-.btn:focus, .btn:active:focus, .btn-link.nav-link:focus, .form-control:focus, .form-check-input:focus {
-  box-shadow: 0 0 0 0.1rem white, 0 0 0 0.25rem #258cfb;
+.btn:focus,
+.btn:active:focus,
+.btn-link.nav-link:focus,
+.form-control:focus,
+.form-check-input:focus {
+    box-shadow: 0 0 0 0.1rem white, 0 0 0 0.25rem #258cfb;
 }
 
 html {
-  position: relative;
-  min-height: 100%;
+    position: relative;
+    min-height: 100%;
 }
 
 body {
-  margin-bottom: 60px;
+    margin: 0;
+    background: #f8f9fa;
+    color: #2D3436;
 }
+
+/* --------------------- */
+/* DASH Sidebar Layout */
+/* --------------------- */
+
+.app-layout {
+    display: flex;
+    min-height: 100vh;
+}
+
+.sidebar {
+    width: 250px;
+    background: white;
+    border-right: 1px solid #dee2e6;
+    padding: 24px;
+}
+
+.sidebar-logo {
+    font-size: 36px;
+    font-weight: 800;
+    color: #A29BFE;
+    letter-spacing: 1px;
+}
+
+.sidebar-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 20px;
+}
+
+.sidebar-link {
+    text-decoration: none;
+    color: #212529;
+    padding: 12px 16px;
+    border-radius: 12px;
+    transition: 0.2s;
+    margin-bottom: 4px;
+}
+
+    .sidebar-link.active {
+        background: rgba(162, 155, 254, 0.18);
+        color: #A29BFE;
+        font-weight: 600;
+    }
+
+    .sidebar-link:hover {
+        background: rgba(162, 155, 254, 0.12);
+        color: #A29BFE;
+    }
+
+.main-content {
+    flex: 1;
+    padding: 24px;
+}
+
+.btn-add-task {
+    background-color: #A29BFE;
+    border-color: #A29BFE;
+    color: white;
+}
+
+    .btn-add-task:hover {
+        background-color: #9189f7;
+        border-color: #9189f7;
+        color: white;
+    }
+
+.btn-edit-task {
+    background-color: #00B894;
+    border-color: #00B894;
+    color: white;
+}
+
+    .btn-edit-task:hover {
+        background-color: #00a884;
+        border-color: #00a884;
+        color: white;
+    }
+
+.btn-delete-task {
+    background-color: #D63031;
+    border-color: #D63031;
+    color: white;
+}
+
+    .btn-delete-task:hover {
+        background-color: #c62828;
+        border-color: #c62828;
+        color: white;
+    }
+
+
+h1, h2, h3, h4, h5, h6 {
+    color: #2D3436;
+}
+
+.table {
+    color: #2D3436;
+}
+
+    .table th {
+        text-align: center;
+        vertical-align: middle;
+        color: #2D3436;
+        font-weight: 700;
+    }
