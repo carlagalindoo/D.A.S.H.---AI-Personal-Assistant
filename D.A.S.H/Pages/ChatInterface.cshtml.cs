@@ -138,7 +138,8 @@ namespace D.A.S.H.Pages
                     Description = input,
                     Date = ParseDate(GetValueOrFallback(facts?.When, input)),
                     Time = ParseTime(GetValueOrFallback(facts?.When, input)).TimeOfDay, // <-- FIXED LINE
-                    Location = GetValueOrFallback(facts?.Where, ExtractLocation(input)),
+                    Location = ExtractCleanLocation(facts?.Where, input),
+                    //Location = GetValueOrFallback(facts?.Where, ExtractLocation(input)),
                     People = GetValueOrFallback(facts?.Who, ExtractPeople(input)),
                     SessionKey = "1"
                 };
@@ -616,6 +617,52 @@ namespace D.A.S.H.Pages
                 ? "Not specified"
                 : location.Trim();
         }
+
+        private string ExtractCleanLocation(string? aiLocation, string fallbackInput)
+        {
+            // 1. Trust the AI if it gave a real place name
+            if (!string.IsNullOrWhiteSpace(aiLocation) &&
+                aiLocation != "*" &&
+                aiLocation.ToLower() != "not specified" &&
+                aiLocation.ToLower() != "unknown")
+            {
+                return aiLocation.Trim();
+            }
+
+            // 2. Fallback: check " to ", " at ", " in ", " to the " patterns
+            string lower = fallbackInput.ToLower();
+
+            string[] separators = { " to the ", " to ", " at ", " in " };
+            foreach (var sep in separators)
+            {
+                if (lower.Contains(sep))
+                {
+                    string prefix = sep == " to the " ? "the " : "";
+
+                    var afterSep = prefix + fallbackInput
+                        .Substring(lower.IndexOf(sep) + sep.Length)
+                        .Trim();
+
+                    // Skip if the word right after is a time expression
+                    if (Regex.IsMatch(afterSep.TrimStart('t', 'h', 'e', ' '), @"^\d{1,2}(:\d{2})?\s*(am|pm)", RegexOptions.IgnoreCase))
+                        continue;
+
+                    // Clean trailing time, date noise, and filler words
+                    afterSep = Regex.Replace(afterSep, @"\s*(at|in|with|on)\s+.*$", "", RegexOptions.IgnoreCase);
+                    afterSep = Regex.Replace(afterSep, @"\b(tomorrow|today|yesterday|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b", "", RegexOptions.IgnoreCase).Trim();
+
+                    // Strip leading "the " for cleaner location names
+                    afterSep = Regex.Replace(afterSep, @"^the\s+", "", RegexOptions.IgnoreCase).Trim();
+
+                    if (!string.IsNullOrWhiteSpace(afterSep))
+                        return afterSep;
+                }
+            }
+
+            return "Not specified";
+        }
+
+
 
         private string ExtractPeople(string input)
         {
