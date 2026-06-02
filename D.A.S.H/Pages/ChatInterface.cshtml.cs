@@ -681,24 +681,46 @@ namespace D.A.S.H.Pages
 
         private string ExtractTitle(string input)
         {
-            var title = input;
+            var title = input.Trim();
 
-            if (title.Contains(" tomorrow", StringComparison.OrdinalIgnoreCase))
-                title = title.Split(" tomorrow", StringSplitOptions.None)[0];
+            // 1. Remove common conversational prefixes to keep the title short and focused
+            string[] prefixes = 
+            {
+                "remind me to ", "remind me ",
+                "create a task to ", "create a task for ", "create a task ", "create task ", "create ",
+                "add a task to ", "add a task for ", "add a task ", "add task ", "add ",
+                "i need to ", "schedule a ", "schedule ", "make a "
+            };
 
-            if (title.Contains(" today", StringComparison.OrdinalIgnoreCase))
-                title = title.Split(" today", StringSplitOptions.None)[0];
+            foreach (var prefix in prefixes)
+            {
+                if (title.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    title = title.Substring(prefix.Length).Trim();
+                    break;
+                }
+            }
 
-            if (title.Contains(" at ", StringComparison.OrdinalIgnoreCase))
-                title = title.Split(" at ", StringSplitOptions.None)[0];
+            // 2. Strip out time, date, location, and people context from the end
+            string[] splitters = { " tomorrow", " today", " at ", " in ", " with ", " on ", " for " };
 
+            foreach (var splitter in splitters)
+            {
+                int index = title.IndexOf(splitter, StringComparison.OrdinalIgnoreCase);
+                if (index > 0)
+                {
+                    title = title.Substring(0, index);
+                }
+            }
 
-            if (title.Contains(" in ", StringComparison.OrdinalIgnoreCase))
-                title = title.Split(" in ", StringSplitOptions.None)[0];
+            // 3. Fallback and formatting
+            if (string.IsNullOrWhiteSpace(title) || title.Length <= 2)
+            {
+                return input; // Fallback to raw input if too much was stripped out
+            }
 
-            return string.IsNullOrWhiteSpace(title)
-                ? input
-                : title.Trim();
+            // Capitalize the first letter to make it look like a proper title
+            return char.ToUpper(title[0]) + title.Substring(1);
         }
 
         private string ExtractUpdateTarget(string input)
