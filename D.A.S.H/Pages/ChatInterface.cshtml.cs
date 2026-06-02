@@ -426,7 +426,7 @@ namespace D.A.S.H.Pages
 
             if (!string.IsNullOrWhiteSpace(facts?.When) && facts.When != "*" && facts.When.ToLower() != "not specified")
                 summary.Add($"time to {taskToUpdate.Time:hh\\:mm} on {taskToUpdate.Date:dd/MM/yyyy}");
-
+                
             if (!string.IsNullOrWhiteSpace(facts?.Where) && facts.Where != "*" && facts.Where.ToLower() != "not specified")
                 summary.Add($"location to '{taskToUpdate.Location}'");
 
@@ -652,9 +652,10 @@ namespace D.A.S.H.Pages
                 }
             }
 
-            if (input.ToLower().Contains(" with "))
+            var withIndex = input.IndexOf(" with ", StringComparison.OrdinalIgnoreCase);
+            if (withIndex >= 0)
             {
-                var person = input.Split(" with ").LastOrDefault();
+                var person = input.Substring(withIndex + 6);
                 return CleanPeople(person);
             }
 
@@ -668,11 +669,24 @@ namespace D.A.S.H.Pages
 
             person = person.Trim();
 
-            if (person.Contains(" at "))
-                person = person.Split(" at ")[0];
+            // Stop reading the person's name once we hit time/location related words
+            string[] stoppers = { " at ", " in ", " on ", " tomorrow", " today", " tonight" };
 
-            if (person.Contains(" in "))
-                person = person.Split(" in ")[0];
+            int earliestIndex = person.Length;
+
+            foreach (var stopper in stoppers)
+            {
+                int index = person.IndexOf(stopper, StringComparison.OrdinalIgnoreCase);
+                if (index >= 0 && index < earliestIndex)
+                {
+                    earliestIndex = index;
+                }
+            }
+
+            if (earliestIndex < person.Length)
+            {
+                person = person.Substring(0, earliestIndex);
+            }
 
             return string.IsNullOrWhiteSpace(person)
                 ? "Not specified"
