@@ -73,7 +73,8 @@ namespace D.A.S.H.Pages
                 lowerInput.Contains("read") ||
                 lowerInput.Contains("view") ||
                 lowerInput.Contains("display") ||
-                lowerInput.Contains("see");
+                lowerInput.Contains("see") ||
+                lowerInput.Contains("details");
 
             // 1. Ollama decides first
             if (action == "read")
@@ -139,7 +140,7 @@ namespace D.A.S.H.Pages
                     Description = input,
                     Date = ParseDate(GetValueOrFallback(facts?.When, input)),
                     Time = ParseTime(GetValueOrFallback(facts?.When, input)).TimeOfDay, // <-- FIXED LINE
-                    Location = ExtractCleanLocation(facts?.Where, input),
+                    Location = CleanLocation(GetValueOrFallback(facts?.Where, ExtractLocation(input))),
                     //Location = GetValueOrFallback(facts?.Where, ExtractLocation(input)),
                     People = CleanPeople(GetValueOrFallback(facts?.Who, ExtractPeople(input))),
                     SessionKey = "1"
@@ -150,7 +151,7 @@ namespace D.A.S.H.Pages
                 AiResponse = "Task created successfully!";
                 AddAiMessage("Task created successfully!", IntentType.Create);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 AiResponse = $"Something went wrong while creating your task. Please try again.";
                 AddAiMessage($"Something went wrong while creating your task. Please try again.", IntentType.Create);
@@ -314,9 +315,31 @@ namespace D.A.S.H.Pages
             }
 
             // 4. Returning matched results safely - Now only showing the Task Title
+            bool wantsDetails =
+                input.Contains("details", StringComparison.OrdinalIgnoreCase) ||
+                input.Contains("information", StringComparison.OrdinalIgnoreCase);
+
             if (matchingTasks.Any())
             {
-                var response = "Here are the tasks I found:\n" + string.Join("\n", matchingTasks.Select(t => $"- {t.Title}"));
+                string response;
+
+                if (wantsDetails)
+                {
+                    response = "Task details:\n\n" +
+                        string.Join("\n\n", matchingTasks.Select(t =>
+                            $"Title: {t.Title}\n" +
+                            $"Description: {t.Description}\n" +
+                            $"Date: {t.Date:dd/MM/yyyy}\n" +
+                            $"Time: {t.Time:hh\\:mm}\n" +
+                            $"Location: {t.Location}\n" +
+                            $"People: {t.People}"
+                        ));
+                }
+                else
+                {
+                    response = "Here are the tasks I found:\n" +
+                        string.Join("\n", matchingTasks.Select(t => $"- {t.Title}"));
+                }
 
                 AiResponse = response;
                 AddAiMessage(response, IntentType.Query);
@@ -347,58 +370,68 @@ namespace D.A.S.H.Pages
                 return;
             }
 
-            // Step 1: Ask the AI — now with the full task list as context
-            Domain.Models.Task? taskToUpdate = null;
-            Domain.Models.UpdateIntent? intent = null;
-
+            // Step 1: Extract facts securely to identify the new field values
+            ExtractedFacts? facts = null;
             try
             {
-                intent = await _aiService.ExtractUpdateIntentAsync(input, tasks);
+                facts = await _aiService.ExtractFactsAsync(input);
             }
-            catch { intent = null; }
+            catch { facts = null; }
 
-            if (intent != null && intent.TaskId > 0)
-                taskToUpdate = tasks.FirstOrDefault(t => t.TaskId == intent.TaskId);
+            var stripped = input
+                .Replace("update", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("change", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("edit", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("modify", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("reschedule", "", StringComparison.OrdinalIgnoreCase)
+                .Trim();
 
-            // Step 2: Fallback — scored keyword matching if AI couldn't identify the task
-            if (taskToUpdate == null)
+            string searchText = stripped;
+
+            // 🔥 NEW CLEANING STEP (PUT IT RIGHT HERE)
+            searchText = searchText
+                .Replace("date", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("time", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("location", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("people", "", StringComparison.OrdinalIgnoreCase)
+                .Trim();
+
+            // remove "to X" part FIRST so task matching is clean
+            if (searchText.Contains(" to ", StringComparison.OrdinalIgnoreCase))
             {
-                var stripped = input
-                    .Replace("update", "", StringComparison.OrdinalIgnoreCase)
-                    .Replace("change", "", StringComparison.OrdinalIgnoreCase)
-                    .Replace("edit", "", StringComparison.OrdinalIgnoreCase)
-                    .Replace("modify", "", StringComparison.OrdinalIgnoreCase)
-                    .Replace("reschedule", "", StringComparison.OrdinalIgnoreCase)
-                    .Trim();
-
-                string searchText = stripped.Contains(" to ", StringComparison.OrdinalIgnoreCase)
-                    ? stripped.Split(" to ", StringSplitOptions.None)[0].Trim()
-                    : stripped;
-
-                var scored = tasks
-                    .Select(t => new { Task = t, Score = ScoreMatch(t, searchText) })
-                    .Where(x => x.Score > 0)
-                    .OrderByDescending(x => x.Score)
-                    .ToList();
-
-                if (scored.Count == 0)
-                {
-                    AddAiMessage(
-                        $"I could not find a task matching your request. " +
-                        $"Your tasks are: {string.Join(", ", tasks.Select(t => $"'{t.Title}'"))}.",
-                        IntentType.Update);
-                    return;
-                }
-
-                if (scored.Count > 1 && scored[0].Score == scored[1].Score)
-                {
-                    var titles = string.Join(", ", scored.Take(5).Select(x => $"'{x.Task.Title}'"));
-                    AddAiMessage($"I found multiple tasks that could match: {titles}. Please be more specific.", IntentType.Update);
-                    return;
-                }
-
-                taskToUpdate = scored[0].Task;
+                searchText = searchText.Split(" to ", StringSplitOptions.None)[0].Trim();
             }
+
+            // also remove field keywords
+            searchText = searchText
+                .Replace("people", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("location", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("title", "", StringComparison.OrdinalIgnoreCase)
+                .Trim();
+
+            var scored = tasks
+                .Select(t => new { Task = t, Score = ScoreMatch(t, searchText) })
+                .Where(x => x.Score > 0)
+                .OrderByDescending(x => x.Score)
+                .ToList();
+
+            if (scored.Count == 0)
+            {
+                AddAiMessage(
+                    $"I could not find a task matching your request. " +
+                    $"Your tasks are: {string.Join(", ", tasks.Select(t => $"'{t.Title}'"))}.",
+                    IntentType.Update);
+                return;
+            }
+
+            if (scored.Count > 1 && scored[0].Score == scored[1].Score)
+            {
+                var titles = string.Join(", ", scored.Take(5).Select(x => $"'{x.Task.Title}'"));
+                AddAiMessage($"I found multiple tasks that could match: {titles}. Please be more specific.", IntentType.Update);
+                return;
+            }
+
+            Domain.Models.Task taskToUpdate = scored[0].Task;
 
             // Step 3: Apply changes
             bool updated = false;
@@ -410,18 +443,32 @@ namespace D.A.S.H.Pages
                 !v.Equals("not specified", StringComparison.OrdinalIgnoreCase) &&
                 !v.Equals("unknown", StringComparison.OrdinalIgnoreCase);
 
-            if (HasValue(intent?.NewTitle))
+            if (HasValue(facts?.What) && input.Contains("title", StringComparison.OrdinalIgnoreCase))
             {
-                taskToUpdate.Title = intent!.NewTitle!.Trim();
+                taskToUpdate.Title = facts!.What!.Trim();
                 summary.Add($"title to '{taskToUpdate.Title}'");
                 updated = true;
             }
 
-            if (HasValue(intent?.NewWhen))
+            if (HasValue(facts?.When))
             {
-                taskToUpdate.Date = ParseDate(intent!.NewWhen);
-                taskToUpdate.Time = ParseTime(intent.NewWhen).TimeOfDay;
+                taskToUpdate.Date = ParseDate(facts!.When);
+                taskToUpdate.Time = ParseTime(facts!.When).TimeOfDay;
                 summary.Add($"date/time to {taskToUpdate.Date:dd/MM/yyyy} {taskToUpdate.Time:hh\\:mm}");
+                updated = true;
+            }
+            else if (input.Contains("monday", StringComparison.OrdinalIgnoreCase) ||
+                input.Contains("tuesday", StringComparison.OrdinalIgnoreCase) ||
+                input.Contains("wednesday", StringComparison.OrdinalIgnoreCase) ||
+                input.Contains("thursday", StringComparison.OrdinalIgnoreCase) ||
+                input.Contains("friday", StringComparison.OrdinalIgnoreCase) ||
+                input.Contains("saturday", StringComparison.OrdinalIgnoreCase) ||
+                input.Contains("sunday", StringComparison.OrdinalIgnoreCase))
+            {
+                var parsedDate = ParseDate(input);
+                taskToUpdate.Date = parsedDate;
+
+                summary.Add($"date to {taskToUpdate.Date:dd/MM/yyyy}");
                 updated = true;
             }
             else
@@ -437,18 +484,96 @@ namespace D.A.S.H.Pages
                 }
             }
 
-            if (HasValue(intent?.NewWhere))
+            bool wantsLocationUpdate =
+                input.Contains("location", StringComparison.OrdinalIgnoreCase) ||
+                input.Contains("at", StringComparison.OrdinalIgnoreCase) ||
+                input.Contains("in", StringComparison.OrdinalIgnoreCase);
+
+            if (wantsLocationUpdate && HasValue(facts?.Where))
             {
-                taskToUpdate.Location = intent!.NewWhere!.Trim();
-                summary.Add($"location to '{taskToUpdate.Location}'");
-                updated = true;
+                var value = facts!.Where!.Trim();
+
+                // 🚫 prevent "8 pm" being treated as a location
+                if (!Regex.IsMatch(value, @"\b\d{1,2}(:\d{2})?\s*(am|pm)\b", RegexOptions.IgnoreCase))
+                {
+                    taskToUpdate.Location = value;
+                    summary.Add($"location to '{taskToUpdate.Location}'");
+                    updated = true;
+                }
+            }
+            else
+            {
+                var lower = input.ToLower();
+
+                // NEW: handle "location to Parliament"
+                if (lower.Contains("location to"))
+                {
+                    taskToUpdate.Location = input
+                        .Substring(lower.IndexOf("location to") + "location to".Length)
+                        .Trim();
+
+                    summary.Add($"location to '{taskToUpdate.Location}'");
+                    updated = true;
+                }
+                // optional but very useful fallback
+                else if (lower.Contains("location to "))
+                {
+                    var afterTo = input
+                        .Substring(lower.IndexOf("location to ") + "location to ".Length)
+                        .Trim();
+
+                    if (!string.IsNullOrWhiteSpace(afterTo))
+                    {
+                        taskToUpdate.Location = afterTo;
+                        summary.Add($"location to '{taskToUpdate.Location}'");
+                        updated = true;
+                    }
+                }
             }
 
-            if (HasValue(intent?.NewWho))
+            bool wantsPeopleUpdate =
+                input.Contains("people", StringComparison.OrdinalIgnoreCase) ||
+                input.Contains("person", StringComparison.OrdinalIgnoreCase) ||
+                input.Contains("attendee", StringComparison.OrdinalIgnoreCase) ||
+                input.Contains("with", StringComparison.OrdinalIgnoreCase);
+
+            if (wantsPeopleUpdate)
             {
-                taskToUpdate.People = intent!.NewWho!.Trim();
-                summary.Add($"people to '{taskToUpdate.People}'");
-                updated = true;
+                string newPeople = "Not specified";
+
+                if (HasValue(facts?.Who))
+                {
+                    newPeople = facts!.Who!.Trim();
+                }
+                else
+                {
+                    var lower = input.ToLower();
+
+                    // NEW RULE: "people to Victoria"
+                    if (lower.Contains("people to"))
+                    {
+                        newPeople = input
+                            .Substring(lower.IndexOf("people to") + "people to".Length)
+                            .Trim();
+                    }
+                    else if (lower.Contains("with"))
+                    {
+                        newPeople = ExtractPeople(input);
+                    }
+                    else
+                    {
+                        newPeople = ExtractPeople(input);
+                    }
+                }
+
+                newPeople = CleanPeople(newPeople);
+
+                if (!string.IsNullOrWhiteSpace(newPeople) && newPeople != "Not specified")
+                {
+                    taskToUpdate.People = newPeople;
+                    summary.Add($"people to '{taskToUpdate.People}'");
+                    updated = true;
+                }
             }
 
             if (!updated)
@@ -461,20 +586,6 @@ namespace D.A.S.H.Pages
             }
 
             await _taskRepository.UpdateAsync(taskToUpdate);
-
-            var summary = new List<string>();
-
-            if (!string.IsNullOrWhiteSpace(facts?.What) && facts.What != "*" && facts.What.ToLower() != "not specified")
-                summary.Add($"title to '{taskToUpdate.Title}'");
-
-            if (!string.IsNullOrWhiteSpace(facts?.When) && facts.When != "*" && facts.When.ToLower() != "not specified")
-                summary.Add($"time to {taskToUpdate.Time:hh\\:mm} on {taskToUpdate.Date:dd/MM/yyyy}");
-                
-            if (!string.IsNullOrWhiteSpace(facts?.Where) && facts.Where != "*" && facts.Where.ToLower() != "not specified")
-                summary.Add($"location to '{taskToUpdate.Location}'");
-
-            if (!string.IsNullOrWhiteSpace(facts?.Who) && facts.Who != "*" && facts.Who.ToLower() != "not specified")
-                summary.Add($"people to '{taskToUpdate.People}'");
 
             AddAiMessage($"Updated '{taskToUpdate.Title}': changed {string.Join(", ", summary)}.", IntentType.Update);
         }
@@ -817,6 +928,13 @@ namespace D.A.S.H.Pages
 
         private string ExtractCleanLocation(string? aiLocation, string fallbackInput)
         {
+            if (string.IsNullOrWhiteSpace(aiLocation))
+                return "Not specified";
+
+            // ❌ BLOCK TIME VALUES BEING TREATED AS LOCATION
+            if (Regex.IsMatch(aiLocation, @"\b\d{1,2}(:\d{2})?\s*(am|pm)\b", RegexOptions.IgnoreCase))
+                return "Not specified";
+
             // 1. Trust the AI if it gave a real place name
             if (!string.IsNullOrWhiteSpace(aiLocation) &&
                 aiLocation != "*" &&
