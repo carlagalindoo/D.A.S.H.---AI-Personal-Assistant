@@ -6,11 +6,11 @@ using System.Numerics;
 using System.Text;
 using System.Threading.Tasks;
 
-
 namespace AI_Integration
 {
     public interface IAiService
     {
-        Task<ExtractedFacts?> ExtractFactsAsync(string userInput);
+        Task<Domain.Models.ExtractedFacts?> ExtractFactsAsync(string userInput);
+        Task<Domain.Models.UpdateIntent?> ExtractUpdateIntentAsync(string userInput, IEnumerable<Domain.Models.Task> existingTasks);
     }
 }

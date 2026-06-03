@@ -337,103 +337,167 @@ namespace D.A.S.H.Pages
 
         private async System.Threading.Tasks.Task HandleUpdateAsync(string input)
         {
-            var tasks = await _taskRepository.GetAllAsync();
+            var tasks = (await _taskRepository.GetAllAsync()).ToList();
 
-            // Strip the command word, then try to split "old value" from "new value"
-            // e.g. "update meeting with John to tomorrow at 4pm"
-            var stripped = input
-                .Replace("update", "", StringComparison.OrdinalIgnoreCase)
-                .Replace("change", "", StringComparison.OrdinalIgnoreCase)
-                .Replace("edit", "", StringComparison.OrdinalIgnoreCase)
-                .Trim();
-
-            // Try to find the task by matching the first part of the input
-            // Split on " to " so "meeting to tomorrow at 4pm" → search for "meeting"
-            string searchText = stripped.Contains(" to ", StringComparison.OrdinalIgnoreCase)
-                ? stripped.Split(" to ", StringSplitOptions.None)[0].Trim()
-                : stripped;
-
-            var matchingTasks = tasks.Where(t =>
-                FuzzyContains(t.Title, searchText, maxDistance: 2) ||
-                FuzzyContains(t.Description, searchText, maxDistance: 2)
-            ).ToList();
-
-            if (!matchingTasks.Any())
+            if (!tasks.Any())
             {
-                AddAiMessage($"I could not find a task matching '{searchText}'.", IntentType.Update);
+                AddAiMessage("You have no tasks to update.", IntentType.Update);
                 return;
             }
 
-            if (matchingTasks.Count > 1)
+            // Step 1: Ask the AI — now with the full task list as context
+            Domain.Models.Task? taskToUpdate = null;
+            Domain.Models.UpdateIntent? intent = null;
+
+            try
             {
-                var titles = string.Join(", ", matchingTasks.Select(t => $"'{t.Title}'"));
-                AddAiMessage($"I found multiple tasks matching '{searchText}': {titles}. Please be more specific.", IntentType.Update);
-                return;
+                intent = await _aiService.ExtractUpdateIntentAsync(input, tasks);
+            }
+            catch { intent = null; }
+
+            if (intent != null && intent.TaskId > 0)
+                taskToUpdate = tasks.FirstOrDefault(t => t.TaskId == intent.TaskId);
+
+            // Step 2: Fallback — scored keyword matching if AI couldn't identify the task
+            if (taskToUpdate == null)
+            {
+                var stripped = input
+                    .Replace("update", "", StringComparison.OrdinalIgnoreCase)
+                    .Replace("change", "", StringComparison.OrdinalIgnoreCase)
+                    .Replace("edit", "", StringComparison.OrdinalIgnoreCase)
+                    .Replace("modify", "", StringComparison.OrdinalIgnoreCase)
+                    .Replace("reschedule", "", StringComparison.OrdinalIgnoreCase)
+                    .Trim();
+
+                string searchText = stripped.Contains(" to ", StringComparison.OrdinalIgnoreCase)
+                    ? stripped.Split(" to ", StringSplitOptions.None)[0].Trim()
+                    : stripped;
+
+                var scored = tasks
+                    .Select(t => new { Task = t, Score = ScoreMatch(t, searchText) })
+                    .Where(x => x.Score > 0)
+                    .OrderByDescending(x => x.Score)
+                    .ToList();
+
+                if (scored.Count == 0)
+                {
+                    AddAiMessage(
+                        $"I could not find a task matching your request. " +
+                        $"Your tasks are: {string.Join(", ", tasks.Select(t => $"'{t.Title}'"))}.",
+                        IntentType.Update);
+                    return;
+                }
+
+                if (scored.Count > 1 && scored[0].Score == scored[1].Score)
+                {
+                    var titles = string.Join(", ", scored.Take(5).Select(x => $"'{x.Task.Title}'"));
+                    AddAiMessage($"I found multiple tasks that could match: {titles}. Please be more specific.", IntentType.Update);
+                    return;
+                }
+
+                taskToUpdate = scored[0].Task;
             }
 
-            var taskToUpdate = matchingTasks.First();
-
-            // Send the FULL original input to the AI so it can extract the new values
-            var facts = await _aiService.ExtractFactsAsync(input);
-
+            // Step 3: Apply changes
             bool updated = false;
+            var summary = new List<string>();
 
-            if (!string.IsNullOrWhiteSpace(facts?.What) &&
-                facts.What != "*" &&
-                facts.What.ToLower() != "not specified")
+            bool HasValue(string? v) =>
+                !string.IsNullOrWhiteSpace(v) &&
+                v != "*" &&
+                !v.Equals("not specified", StringComparison.OrdinalIgnoreCase) &&
+                !v.Equals("unknown", StringComparison.OrdinalIgnoreCase);
+
+            if (HasValue(intent?.NewTitle))
             {
-                taskToUpdate.Title = facts.What;
+                taskToUpdate.Title = intent!.NewTitle!.Trim();
+                summary.Add($"title to '{taskToUpdate.Title}'");
                 updated = true;
             }
 
-            if (!string.IsNullOrWhiteSpace(facts?.When) &&
-                facts.When != "*" &&
-                facts.When.ToLower() != "not specified")
+            if (HasValue(intent?.NewWhen))
             {
-                taskToUpdate.Date = ParseDate(facts.When);
-                taskToUpdate.Time = ParseTime(facts.When).TimeOfDay;
+                taskToUpdate.Date = ParseDate(intent!.NewWhen);
+                taskToUpdate.Time = ParseTime(intent.NewWhen).TimeOfDay;
+                summary.Add($"date/time to {taskToUpdate.Date:dd/MM/yyyy} {taskToUpdate.Time:hh\\:mm}");
+                updated = true;
+            }
+            else
+            {
+                // Even without AI, parse date/time directly from the raw input
+                var parsedWhen = TryExtractWhenFromInput(input);
+                if (parsedWhen.HasValue)
+                {
+                    taskToUpdate.Date = parsedWhen.Value.Date;
+                    taskToUpdate.Time = parsedWhen.Value.TimeOfDay;
+                    summary.Add($"date/time to {taskToUpdate.Date:dd/MM/yyyy} {taskToUpdate.Time:hh\\:mm}");
+                    updated = true;
+                }
+            }
+
+            if (HasValue(intent?.NewWhere))
+            {
+                taskToUpdate.Location = intent!.NewWhere!.Trim();
+                summary.Add($"location to '{taskToUpdate.Location}'");
                 updated = true;
             }
 
-            if (!string.IsNullOrWhiteSpace(facts?.Where) &&
-                facts.Where != "*" &&
-                facts.Where.ToLower() != "not specified")
+            if (HasValue(intent?.NewWho))
             {
-                taskToUpdate.Location = facts.Where;
-                updated = true;
-            }
-
-            if (!string.IsNullOrWhiteSpace(facts?.Who) &&
-                facts.Who != "*" &&
-                facts.Who.ToLower() != "not specified")
-            {
-                taskToUpdate.People = facts.Who;
+                taskToUpdate.People = intent!.NewWho!.Trim();
+                summary.Add($"people to '{taskToUpdate.People}'");
                 updated = true;
             }
 
             if (!updated)
             {
-                AddAiMessage($"I found '{taskToUpdate.Title}' but couldn't understand what to change. Try something like: 'update meeting to tomorrow at 4pm'.", IntentType.Update);
+                AddAiMessage(
+                    $"I found the task '{taskToUpdate.Title}' but couldn't understand what to change. " +
+                    $"Try: 'update {taskToUpdate.Title} to tomorrow at 4pm' or 'change {taskToUpdate.Title} location to Room B'.",
+                    IntentType.Update);
                 return;
             }
 
             await _taskRepository.UpdateAsync(taskToUpdate);
-
-            var summary = new List<string>();
-
-            if (!string.IsNullOrWhiteSpace(facts?.What) && facts.What != "*" && facts.What.ToLower() != "not specified")
-                summary.Add($"title to '{taskToUpdate.Title}'");
-
-            if (!string.IsNullOrWhiteSpace(facts?.When) && facts.When != "*" && facts.When.ToLower() != "not specified")
-                summary.Add($"time to {taskToUpdate.Time:hh\\:mm} on {taskToUpdate.Date:dd/MM/yyyy}");
-
-            if (!string.IsNullOrWhiteSpace(facts?.Where) && facts.Where != "*" && facts.Where.ToLower() != "not specified")
-                summary.Add($"location to '{taskToUpdate.Location}'");
-
-            if (!string.IsNullOrWhiteSpace(facts?.Who) && facts.Who != "*" && facts.Who.ToLower() != "not specified")
-                summary.Add($"people to '{taskToUpdate.People}'");
-
             AddAiMessage($"Updated '{taskToUpdate.Title}': changed {string.Join(", ", summary)}.", IntentType.Update);
+        }
+
+        private static int ScoreMatch(Domain.Models.Task task, string searchText)
+        {
+            if (string.IsNullOrWhiteSpace(searchText)) return 0;
+            if (task.Title.Equals(searchText, StringComparison.OrdinalIgnoreCase)) return 100;
+            if (task.Title.Contains(searchText, StringComparison.OrdinalIgnoreCase)) return 70;
+            if (task.Description?.Contains(searchText, StringComparison.OrdinalIgnoreCase) == true) return 50;
+
+            var searchWords = searchText
+                .Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                .Where(w => w.Length > 2)
+                .ToList();
+
+            if (searchWords.Count == 0) return 0;
+
+            int hits = searchWords.Count(w =>
+                task.Title.Contains(w, StringComparison.OrdinalIgnoreCase) ||
+                task.Description?.Contains(w, StringComparison.OrdinalIgnoreCase) == true);
+
+            return hits >= Math.Ceiling(searchWords.Count / 2.0) ? hits * 10 : 0;
+        }
+
+        private DateTime? TryExtractWhenFromInput(string input)
+        {
+            bool hasTime = System.Text.RegularExpressions.Regex.IsMatch(
+                input, @"\b\d{1,2}(:\d{2})?\s*(am|pm)\b",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            bool hasDate = input.Contains("today", StringComparison.OrdinalIgnoreCase) ||
+                           input.Contains("tomorrow", StringComparison.OrdinalIgnoreCase);
+
+            if (!hasTime && !hasDate) return null;
+
+            string whenPart = input.Contains(" to ", StringComparison.OrdinalIgnoreCase)
+                ? input.Split(" to ", StringSplitOptions.None).Last()
+                : input;
+
+            return ParseDate(whenPart).Date + ParseTime(whenPart).TimeOfDay;
         }
 
         private string GetValueOrFallback(string? aiValue, string fallback)
