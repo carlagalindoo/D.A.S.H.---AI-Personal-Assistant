@@ -134,12 +134,14 @@ namespace D.A.S.H.Pages
 
                 var task = new Domain.Models.Task
                 {
-                    Title = GetValueOrFallback(facts?.What, ExtractTitle(input)),
+                    // Clean both AI-provided and regex-extracted values to be absolutely safe
+                    Title = ExtractTitle(GetValueOrFallback(facts?.What, ExtractTitle(input))),
                     Description = input,
                     Date = ParseDate(GetValueOrFallback(facts?.When, input)),
                     Time = ParseTime(GetValueOrFallback(facts?.When, input)).TimeOfDay, // <-- FIXED LINE
-                    Location = GetValueOrFallback(facts?.Where, ExtractLocation(input)),
-                    People = GetValueOrFallback(facts?.Who, ExtractPeople(input)),
+                    Location = ExtractCleanLocation(facts?.Where, input),
+                    //Location = GetValueOrFallback(facts?.Where, ExtractLocation(input)),
+                    People = CleanPeople(GetValueOrFallback(facts?.Who, ExtractPeople(input))),
                     SessionKey = "1"
                 };
 
@@ -459,6 +461,21 @@ namespace D.A.S.H.Pages
             }
 
             await _taskRepository.UpdateAsync(taskToUpdate);
+
+            var summary = new List<string>();
+
+            if (!string.IsNullOrWhiteSpace(facts?.What) && facts.What != "*" && facts.What.ToLower() != "not specified")
+                summary.Add($"title to '{taskToUpdate.Title}'");
+
+            if (!string.IsNullOrWhiteSpace(facts?.When) && facts.When != "*" && facts.When.ToLower() != "not specified")
+                summary.Add($"time to {taskToUpdate.Time:hh\\:mm} on {taskToUpdate.Date:dd/MM/yyyy}");
+                
+            if (!string.IsNullOrWhiteSpace(facts?.Where) && facts.Where != "*" && facts.Where.ToLower() != "not specified")
+                summary.Add($"location to '{taskToUpdate.Location}'");
+
+            if (!string.IsNullOrWhiteSpace(facts?.Who) && facts.Who != "*" && facts.Who.ToLower() != "not specified")
+                summary.Add($"people to '{taskToUpdate.People}'");
+
             AddAiMessage($"Updated '{taskToUpdate.Title}': changed {string.Join(", ", summary)}.", IntentType.Update);
         }
 
@@ -584,22 +601,134 @@ namespace D.A.S.H.Pages
             HttpContext.Session.SetString("ChatMessages", JsonSerializer.Serialize(ChatMessages));
         }
 
+        // THIS IS NEW RULES FOR DATE
         private DateTime ParseDate(string? input)
         {
             if (string.IsNullOrWhiteSpace(input))
                 return DateTime.Today;
 
-            input = input.ToLower();
+            input = input.ToLower().Trim();
 
+            // today / tomorrow
             if (input.Contains("tomorrow"))
                 return DateTime.Today.AddDays(1);
-
             if (input.Contains("today"))
                 return DateTime.Today;
 
+            //  weeks / months"
+            var relativeMatch = Regex.Match(input,
+                @"\bin\s+(\d+)\s+(day|days|week|weeks|month|months)\b");
+            if (relativeMatch.Success)
+            {
+                int amount = int.Parse(relativeMatch.Groups[1].Value);
+                string unit = relativeMatch.Groups[2].Value;
+                if (unit.StartsWith("month")) return DateTime.Today.AddMonths(amount);
+                if (unit.StartsWith("week")) return DateTime.Today.AddDays(amount * 7);
+                return DateTime.Today.AddDays(amount);
+            }
+
+            //  "next Monday" or bare day name like "on Friday"
+            var dayNames = new Dictionary<string, DayOfWeek>(StringComparer.OrdinalIgnoreCase)
+    {
+        { "monday",    DayOfWeek.Monday },
+        { "tuesday",   DayOfWeek.Tuesday },
+        { "wednesday", DayOfWeek.Wednesday },
+        { "thursday",  DayOfWeek.Thursday },
+        { "friday",    DayOfWeek.Friday },
+        { "saturday",  DayOfWeek.Saturday },
+        { "sunday",    DayOfWeek.Sunday }
+    };
+
+            foreach (var (name, dow) in dayNames)
+            {
+                if (Regex.IsMatch(input, $@"\b{name}\b"))
+                {
+                    int daysUntil = ((int)dow - (int)DateTime.Today.DayOfWeek + 7) % 7;
+                    if (daysUntil == 0) daysUntil = 7; // always next occurrence
+                    return DateTime.Today.AddDays(daysUntil);
+                }
+            }
+
+            // Numeric date: 8.6 / 8/6 / 8-6  (day.month, assuming current or next year)
+            var numericMatch = Regex.Match(input, @"\b(\d{1,2})[./\-](\d{1,2})\b");
+            if (numericMatch.Success)
+            {
+                int day = int.Parse(numericMatch.Groups[1].Value);
+                int month = int.Parse(numericMatch.Groups[2].Value);
+                try
+                {
+                    var candidate = new DateTime(DateTime.Today.Year, month, day);
+                    if (candidate < DateTime.Today)
+                        candidate = candidate.AddYears(1); // already passed this year
+                    return candidate;
+                }
+                catch { /* invalid day/month combo — fall through */ }
+            }
+
+            // Written month name: "June 15" or "15 June"
+            var monthNames = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+    {
+        { "january",1 },{ "february",2 },{ "march",3 },{ "april",4 },
+        { "may",5 },{ "june",6 },{ "july",7 },{ "august",8 },
+        { "september",9 },{ "october",10 },{ "november",11 },{ "december",12 }
+    };
+
+            var monthMatch = Regex.Match(input,
+                @"\b(\d{1,2})\s*(january|february|march|april|may|june|july|august|september|october|november|december)\b|\b(january|february|march|april|may|june|july|august|september|october|november|december)\s*(\d{1,2})\b",
+                RegexOptions.IgnoreCase);
+
+            if (monthMatch.Success)
+            {
+                string monthStr = monthMatch.Groups[2].Value.Length > 0
+                    ? monthMatch.Groups[2].Value
+                    : monthMatch.Groups[3].Value;
+                string dayStr = monthMatch.Groups[1].Value.Length > 0
+                    ? monthMatch.Groups[1].Value
+                    : monthMatch.Groups[4].Value;
+
+                if (int.TryParse(dayStr, out int d) && monthNames.TryGetValue(monthStr, out int m))
+                {
+                    try
+                    {
+                        var candidate = new DateTime(DateTime.Today.Year, m, d);
+                        if (candidate < DateTime.Today)
+                            candidate = candidate.AddYears(1);
+                        return candidate;
+                    }
+                    catch { /* invalid date — fall through */ }
+                }
+            }
+            // 4c. Ordinal month name: "July 6th" / "6th of July"
+            var ordinalMatch = Regex.Match(input,
+                @"\b(\d{1,2})(?:st|nd|rd|th)?\s+(january|february|march|april|may|june|july|august|september|october|november|december)\b|\b(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})(?:st|nd|rd|th)?\b",
+                RegexOptions.IgnoreCase);
+
+            if (ordinalMatch.Success)
+            {
+                string monthStr = ordinalMatch.Groups[2].Value.Length > 0
+                    ? ordinalMatch.Groups[2].Value
+                    : ordinalMatch.Groups[3].Value;
+                string dayStr = ordinalMatch.Groups[1].Value.Length > 0
+                    ? ordinalMatch.Groups[1].Value
+                    : ordinalMatch.Groups[4].Value;
+
+                if (int.TryParse(dayStr, out int d) && monthNames.TryGetValue(monthStr, out int m))
+                {
+                    try
+                    {
+                        var candidate = new DateTime(DateTime.Today.Year, m, d);
+                        if (candidate < DateTime.Today)
+                            candidate = candidate.AddYears(1);
+                        return candidate;
+                    }
+                    catch { }
+                }
+            }
+
+            // Fallback
             return DateTime.Today;
         }
-
+        // THIS IS THE END OF DATE RULES
         private DateTime ParseTime(string? input)
         {
             if (string.IsNullOrWhiteSpace(input))
@@ -686,6 +815,52 @@ namespace D.A.S.H.Pages
                 : location.Trim();
         }
 
+        private string ExtractCleanLocation(string? aiLocation, string fallbackInput)
+        {
+            // 1. Trust the AI if it gave a real place name
+            if (!string.IsNullOrWhiteSpace(aiLocation) &&
+                aiLocation != "*" &&
+                aiLocation.ToLower() != "not specified" &&
+                aiLocation.ToLower() != "unknown")
+            {
+                return aiLocation.Trim();
+            }
+
+            // 2. Fallback: check " to ", " at ", " in ", " to the " patterns
+            string lower = fallbackInput.ToLower();
+
+            string[] separators = { " to the ", " to ", " at ", " in " };
+            foreach (var sep in separators)
+            {
+                if (lower.Contains(sep))
+                {
+                    string prefix = sep == " to the " ? "the " : "";
+
+                    var afterSep = prefix + fallbackInput
+                        .Substring(lower.IndexOf(sep) + sep.Length)
+                        .Trim();
+
+                    // Skip if the word right after is a time expression
+                    if (Regex.IsMatch(afterSep.TrimStart('t', 'h', 'e', ' '), @"^\d{1,2}(:\d{2})?\s*(am|pm)", RegexOptions.IgnoreCase))
+                        continue;
+
+                    // Clean trailing time, date noise, and filler words
+                    afterSep = Regex.Replace(afterSep, @"\s*(at|in|with|on)\s+.*$", "", RegexOptions.IgnoreCase);
+                    afterSep = Regex.Replace(afterSep, @"\b(tomorrow|today|yesterday|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b", "", RegexOptions.IgnoreCase).Trim();
+
+                    // Strip leading "the " for cleaner location names
+                    afterSep = Regex.Replace(afterSep, @"^the\s+", "", RegexOptions.IgnoreCase).Trim();
+
+                    if (!string.IsNullOrWhiteSpace(afterSep))
+                        return afterSep;
+                }
+            }
+
+            return "Not specified";
+        }
+
+
+
         private string ExtractPeople(string input)
         {
             var words = input.Split(' ', StringSplitOptions.RemoveEmptyEntries);
@@ -716,9 +891,10 @@ namespace D.A.S.H.Pages
                 }
             }
 
-            if (input.ToLower().Contains(" with "))
+            var withIndex = input.IndexOf(" with ", StringComparison.OrdinalIgnoreCase);
+            if (withIndex >= 0)
             {
-                var person = input.Split(" with ").LastOrDefault();
+                var person = input.Substring(withIndex + 6);
                 return CleanPeople(person);
             }
 
@@ -732,11 +908,29 @@ namespace D.A.S.H.Pages
 
             person = person.Trim();
 
-            if (person.Contains(" at "))
-                person = person.Split(" at ")[0];
+            // If the AI accidentally isolated JUST a time word as the person
+            if (person.Equals("tomorrow", StringComparison.OrdinalIgnoreCase) || 
+                person.Equals("today", StringComparison.OrdinalIgnoreCase))
+                return "Not specified";
 
-            if (person.Contains(" in "))
-                person = person.Split(" in ")[0];
+            // Stop reading the person's name once we hit time/location related words
+            string[] stoppers = { " at ", " in ", " on ", " tomorrow", " today", " tonight" };
+
+            int earliestIndex = person.Length;
+
+            foreach (var stopper in stoppers)
+            {
+                int index = person.IndexOf(stopper, StringComparison.OrdinalIgnoreCase);
+                if (index > 0 && index < earliestIndex) // Must be > 0 to not wipe out the entire string if it starts with the word
+                {
+                    earliestIndex = index;
+                }
+            }
+
+            if (earliestIndex < person.Length)
+            {
+                person = person.Substring(0, earliestIndex);
+            }
 
             return string.IsNullOrWhiteSpace(person)
                 ? "Not specified"
@@ -745,24 +939,46 @@ namespace D.A.S.H.Pages
 
         private string ExtractTitle(string input)
         {
-            var title = input;
+            var title = input.Trim();
 
-            if (title.Contains(" tomorrow", StringComparison.OrdinalIgnoreCase))
-                title = title.Split(" tomorrow", StringSplitOptions.None)[0];
+            // 1. Remove common conversational prefixes to keep the title short and focused
+            string[] prefixes = 
+            {
+                "remind me to ", "remind me ",
+                "create a task to ", "create a task for ", "create a task ", "create task ", "create ",
+                "add a task to ", "add a task for ", "add a task ", "add task ", "add ",
+                "i need to ", "schedule a ", "schedule ", "make a "
+            };
 
-            if (title.Contains(" today", StringComparison.OrdinalIgnoreCase))
-                title = title.Split(" today", StringSplitOptions.None)[0];
+            foreach (var prefix in prefixes)
+            {
+                if (title.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    title = title.Substring(prefix.Length).Trim();
+                    break;
+                }
+            }
 
-            if (title.Contains(" at ", StringComparison.OrdinalIgnoreCase))
-                title = title.Split(" at ", StringSplitOptions.None)[0];
+            // 2. Strip out time, date, location, and people context from the end
+            string[] splitters = { " tomorrow", " today", " at ", " in ", " with ", " on ", " for " };
 
+            foreach (var splitter in splitters)
+            {
+                int index = title.IndexOf(splitter, StringComparison.OrdinalIgnoreCase);
+                if (index > 0)
+                {
+                    title = title.Substring(0, index);
+                }
+            }
 
-            if (title.Contains(" in ", StringComparison.OrdinalIgnoreCase))
-                title = title.Split(" in ", StringSplitOptions.None)[0];
+            // 3. Fallback and formatting
+            if (string.IsNullOrWhiteSpace(title) || title.Length <= 2)
+            {
+                return input; // Fallback to raw input if too much was stripped out
+            }
 
-            return string.IsNullOrWhiteSpace(title)
-                ? input
-                : title.Trim();
+            // Capitalize the first letter to make it look like a proper title
+            return char.ToUpper(title[0]) + title.Substring(1);
         }
 
         private string ExtractUpdateTarget(string input)
